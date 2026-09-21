@@ -267,7 +267,7 @@ function buildBilanPdf(d, profil) {
         { label: "Type", x: 360 },
         { label: "Montant", x: R, align: "right" }
       ],
-      d.depenses.map((e) => [pdfDate(e.date), e.libelle || e.categorie, e.recurringId ? "Charge fixe" : "Ponctuelle", pdfEUR(e.montant)])
+      d.depenses.map((e) => [pdfDate(e.date), e.categorie, e.recurringId ? "Charge fixe" : "Ponctuelle", pdfEUR(e.montant)])
     );
   }
 

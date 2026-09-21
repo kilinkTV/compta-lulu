@@ -371,13 +371,11 @@ document.getElementById("form-depense").addEventListener("submit", (e) => {
     id: uid(),
     date,
     categorie: document.getElementById("depense-categorie").value,
-    libelle: document.getElementById("depense-libelle").value.trim(),
     montant,
     note: document.getElementById("depense-note").value.trim()
   });
   saveDB(DB);
   showToast("Dépense enregistrée ✓");
-  document.getElementById("depense-libelle").value = "";
   document.getElementById("depense-montant").value = "";
   document.getElementById("depense-note").value = "";
 });
@@ -518,18 +516,6 @@ function openTresorerieModal() {
 
 document.getElementById("btn-update-tresorerie").addEventListener("click", openTresorerieModal);
 
-function depenseLabel(d) {
-  return d.libelle || d.categorie;
-}
-
-function depenseSousTitre(d) {
-  const parts = [];
-  if (d.libelle) parts.push(d.categorie);
-  if (d.note) parts.push(d.note);
-  if (!parts.length) parts.push(d.recurringId ? "Charge mensuelle fixe" : "Dépense");
-  return parts.join(" · ");
-}
-
 function byDateAsc(a, b) {
   return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
 }
@@ -666,8 +652,8 @@ function renderHistorique() {
     } else {
       el.innerHTML = `
         <div class="entry-main">
-          <div class="entry-title">${escapeHtml(depenseLabel(item))}</div>
-          <div class="entry-sub">${escapeHtml(depenseSousTitre(item))}</div>
+          <div class="entry-title">${escapeHtml(item.categorie)}</div>
+          <div class="entry-sub">${item.note ? escapeHtml(item.note) : item.recurringId ? "Charge mensuelle fixe" : "Dépense"}</div>
         </div>
         <div class="entry-amount negative">-${fmtEUR(item.montant)}</div>
       `;
@@ -699,8 +685,6 @@ function openEntryModal(item) {
       <select id="edit-cat">
         ${(DB.settings.categoriesDepenses.includes(item.categorie) ? DB.settings.categoriesDepenses : [item.categorie, ...DB.settings.categoriesDepenses]).map((c) => `<option value="${escapeAttr(c)}" ${c === item.categorie ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
       </select>
-      <label class="field-label">Intitulé (au choix)</label>
-      <input type="text" id="edit-libelle" value="${escapeAttr(item.libelle || "")}" />
       <label class="field-label">Montant (€)</label>
       <input type="number" id="edit-montant" step="0.01" value="${item.montant}" />
       <label class="field-label">Note</label>
@@ -729,7 +713,6 @@ function openEntryModal(item) {
       Object.assign(item, {
         date, montant,
         categorie: document.getElementById("edit-cat").value,
-        libelle: document.getElementById("edit-libelle").value.trim(),
         note: document.getElementById("edit-note").value.trim()
       });
     }
@@ -987,7 +970,7 @@ document.getElementById("btn-export-csv").addEventListener("click", () => {
     csv += `Prestation;${p.date};${csvSafe(p.typeLabel)};${csvSafe(p.mode)};${p.montant.toFixed(2)};${p.montantPercu.toFixed(2)}\n`;
   });
   depenses.forEach((d) => {
-    csv += `Dépense;${d.date};${csvSafe(depenseLabel(d))};;-${d.montant.toFixed(2)};-${d.montant.toFixed(2)}\n`;
+    csv += `Dépense;${d.date};${csvSafe(d.categorie)};;-${d.montant.toFixed(2)};-${d.montant.toFixed(2)}\n`;
   });
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
   deliverFile(blob, `compta-lulu-${monthLabel(bilanYear, bilanMonth).replace(" ", "-").toLowerCase()}.csv`);
