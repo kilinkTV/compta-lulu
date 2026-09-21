@@ -197,6 +197,21 @@ function buildBilanPdf(d, profil) {
   if (profil && profil.siret) doc.text("SIRET " + profil.siret, R, 54, { size: 9, color: [1, 1, 1], align: "right" });
   y = 106;
 
+  section("Répartition par mode de paiement");
+  const modes = Object.keys(d.repartition);
+  if (modes.length === 0) {
+    note("Aucune prestation ce mois-ci.");
+  } else {
+    table(
+      [
+        { label: "Mode", x: M },
+        { label: "Prestations", x: 330, align: "right" },
+        { label: "Montant facturé", x: R, align: "right" }
+      ],
+      modes.map((m) => [m === "CB" ? "CB (SumUp)" : m, String(d.repartition[m].count), pdfEUR(d.repartition[m].total)])
+    );
+  }
+
   section("Résumé du mois");
   row("Chiffre d'affaires (à déclarer à l'URSSAF)", pdfEUR(d.ca), { bold: true });
   row("Commissions SumUp sur les paiements CB", "- " + pdfEUR(d.frais), { muted: true });
@@ -221,21 +236,6 @@ function buildBilanPdf(d, profil) {
   doc.text("perçu - cotisations URSSAF - dépenses", M + 12, y + 14, { size: 8.5, color: MUTED });
   doc.text(pdfEUR(d.net), R - 12, y + 6, { size: 15, bold: true, color: TEAL, align: "right" });
   y += 40;
-
-  section("Répartition par mode de paiement");
-  const modes = Object.keys(d.repartition);
-  if (modes.length === 0) {
-    note("Aucune prestation ce mois-ci.");
-  } else {
-    table(
-      [
-        { label: "Mode", x: M },
-        { label: "Prestations", x: 330, align: "right" },
-        { label: "Montant facturé", x: R, align: "right" }
-      ],
-      modes.map((m) => [m === "CB" ? "CB (SumUp)" : m, String(d.repartition[m].count), pdfEUR(d.repartition[m].total)])
-    );
-  }
 
   section("Détail des prestations");
   if (d.prestas.length === 0) {
