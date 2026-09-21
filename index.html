@@ -22,6 +22,12 @@
 
 <main id="app">
 
+  <div id="recovery-banner" class="card hidden">
+    <div class="card-title">Données à vérifier</div>
+    <p class="hint" style="margin-top:0">Vos données enregistrées n'ont pas pu être relues. Elles n'ont pas été supprimées : une copie de sécurité est conservée. Restaurez-la avant de saisir de nouvelles données.</p>
+    <button type="button" id="btn-recovery-open" class="btn-secondary">Voir les copies de sécurité</button>
+  </div>
+
   <!-- ===================== ECRAN SAISIE ===================== -->
   <section id="screen-saisie" class="screen">
 
@@ -181,10 +187,23 @@
       <label class="field-label">Trésorerie actuelle (solde du compte pro, €)</label>
       <input type="number" id="tres-montant" step="0.01" inputmode="decimal" placeholder="0.00" />
       <div class="hint" id="tres-date"></div>
-      <label class="field-label">Coussin de sécurité (mois de charges à garder)</label>
-      <input type="number" id="tres-mois" step="1" min="0" max="12" inputmode="numeric" />
-      <div class="hint" id="tres-reco"></div>
-      <p class="hint">Recommandation : 3 mois, ou 6 si l'activité est irrégulière. En micro-entreprise, les cotisations baissent avec le chiffre d'affaires ; ce qui pèse même sans revenu, ce sont les charges fixes (loyer, assurances, abonnements). Au bilan, l'appli met de côté les cotisations URSSAF déjà dues mais pas encore prélevées, garde ce coussin, et vous conseille de vous verser le reste. Pensez à mettre la trésorerie à jour avant chaque bilan.</p>
+      <label class="field-label">Trésorerie à garder sur le compte</label>
+      <div class="segmented">
+        <button type="button" class="seg-btn active" data-tres-mode="coussin">Coussin de sécurité</button>
+        <button type="button" class="seg-btn" data-tres-mode="libre">Montant libre</button>
+      </div>
+      <div id="tres-coussin-fields">
+        <label class="field-label">Mois de charges à garder</label>
+        <input type="number" id="tres-mois" step="1" min="0" max="12" inputmode="numeric" />
+        <div class="hint" id="tres-reco"></div>
+        <p class="hint">Recommandation : 3 mois, ou 6 si l'activité est irrégulière. En micro-entreprise, les cotisations baissent avec le chiffre d'affaires ; ce qui pèse même sans revenu, ce sont les charges fixes (loyer, assurances, abonnements).</p>
+      </div>
+      <div id="tres-libre-fields" class="hidden">
+        <label class="field-label">Montant à garder (€)</label>
+        <input type="number" id="tres-libre" step="0.01" min="0" inputmode="decimal" placeholder="Ex : 3000" />
+        <p class="hint">Vous fixez vous-même la réserve à conserver, quel que soit le niveau de vos charges.</p>
+      </div>
+      <p class="hint">Au bilan, l'appli met de côté les cotisations URSSAF déjà dues mais pas encore prélevées, garde cette trésorerie, et vous conseille de vous verser le reste. Pensez à mettre la trésorerie à jour avant chaque bilan.</p>
       <button type="button" id="btn-save-tresorerie" class="btn-secondary">Enregistrer</button>
     </div>
 
@@ -216,9 +235,15 @@
       <button type="button" id="btn-save-profil" class="btn-secondary">Enregistrer</button>
     </div>
 
+    <div class="card" id="snapshots-card">
+      <div class="card-title">Copies de sécurité automatiques</div>
+      <p class="hint" style="margin-top:0">L'appli garde toute seule une copie de vos données chaque jour, ainsi qu'avant chaque mise à jour, import ou restauration (les 10 dernières). Elles restent sur cet appareil.</p>
+      <div id="snapshots-list"></div>
+    </div>
+
     <div class="card">
       <div class="card-title">Sauvegarde des données</div>
-      <p class="hint">Les données sont stockées uniquement sur ce téléphone. Faites une sauvegarde régulière pour ne rien perdre.</p>
+      <p class="hint">Les données sont stockées uniquement sur ce téléphone. Faites une sauvegarde régulière (fichier JSON, à envoyer par mail ou à ranger dans Fichiers) pour ne rien perdre en cas de perte ou de changement de téléphone.</p>
       <button type="button" id="btn-export" class="btn-secondary">Exporter toutes les données (JSON)</button>
       <button type="button" id="btn-export-csv" class="btn-secondary">Exporter le mois affiché (CSV)</button>
       <label class="btn-secondary file-label">

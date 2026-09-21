@@ -2,10 +2,16 @@
 
 /* ============================= STORAGE ============================= */
 
+// Ne jamais changer cette clé : c'est elle qui permet de retrouver les données déjà enregistrées.
 const STORAGE_KEY = "comptaLulu_v1";
+const SNAPSHOTS_KEY = "comptaLulu_snapshots";
+const SCHEMA_VERSION = 2;
+const MAX_SNAPSHOTS = 10;
+let loadProblem = false;
 
 function defaultDB() {
   return {
+    version: SCHEMA_VERSION,
     prestations: [],
     depenses: [],
     settings: {
@@ -24,7 +30,7 @@ function defaultDB() {
       categoriesMigrees: true,
       chargesFixes: defaultChargesFixes(),
       profil: { nom: "Lucile Le Pocreau", siret: "" },
-      tresorerie: { montant: null, date: null, moisCoussin: 3 }
+      tresorerie: { montant: null, date: null, mode: "coussin", moisCoussin: 3, montantLibre: null }
     }
   };
 }
@@ -34,50 +40,148 @@ function defaultChargesFixes() {
     id: uid(),
     nom,
     montant: 0,
-    genereJusqua: null
+    historique: []
   }));
 }
 
+// Migrations : chaque étape convertit les données existantes, sans jamais en supprimer.
+function migrateDB(db) {
+  if ((db.version || 1) < 2) {
+    // v2 : les charges fixes ne sont plus recopiées mois par mois dans les dépenses ; elles sont comptées
+    // chaque mois d'après leur historique de montant. On convertit les anciennes entrées générées.
+    const charges = db.settings.chargesFixes;
+    const legacy = db.depenses.filter((d) => d && d.recurringId);
+    charges.forEach((c) => {
+      const mine = legacy
+        .filter((d) => d.recurringId === c.id && d.recurringMonth)
+        .sort((a, b) => (a.recurringMonth < b.recurringMonth ? -1 : 1));
+      if (mine.length) {
+        const hist = [];
+        mine.forEach((d) => {
+          const last = hist[hist.length - 1];
+          if (!last || last.montant !== d.montant) hist.push({ depuis: d.recurringMonth, montant: d.montant });
+        });
+        const apres = nextMonthKey(mine[mine.length - 1].recurringMonth);
+        const dernier = hist[hist.length - 1];
+        if (c.montant > 0 && dernier.montant !== c.montant) hist.push({ depuis: apres, montant: c.montant });
+        else if (!(c.montant > 0) && dernier.montant > 0) hist.push({ depuis: apres, montant: 0 });
+        c.historique = hist;
+        c.montant = hist[hist.length - 1].montant;
+      }
+      delete c.genereJusqua;
+    });
+    // Les entrées dont la charge a été supprimée restent des dépenses ordinaires.
+    const ids = new Set(charges.map((c) => c.id));
+    db.depenses = db.depenses.filter((d) => !(d && d.recurringId && ids.has(d.recurringId)));
+    db.depenses.forEach((d) => {
+      if (d && d.recurringId) {
+        delete d.recurringId;
+        delete d.recurringMonth;
+      }
+    });
+  }
+  db.version = SCHEMA_VERSION;
+}
+
+// Ne doit jamais lever d'exception sur des données valides ou partielles : les champs absents reçoivent une valeur par défaut.
 function normalizeDB(db) {
   const def = defaultDB();
-  db.prestations = db.prestations || [];
-  db.depenses = db.depenses || [];
-  db.settings = db.settings || def.settings;
-  db.settings.urssaf = db.settings.urssaf || def.settings.urssaf;
-  db.settings.sumupRate = db.settings.sumupRate ?? 1.75;
-  db.settings.typesPrestations = db.settings.typesPrestations || [];
-  db.settings.categoriesDepenses = db.settings.categoriesDepenses || [];
+  const arr = (x, fallback) => (Array.isArray(x) ? x : fallback);
+  db.prestations = arr(db.prestations, []);
+  db.depenses = arr(db.depenses, []);
+  db.settings = db.settings && typeof db.settings === "object" ? db.settings : def.settings;
+  const s = db.settings;
+  s.urssaf = s.urssaf || def.settings.urssaf;
+  s.sumupRate = s.sumupRate ?? 1.75;
+  s.typesPrestations = arr(s.typesPrestations, []);
+  s.categoriesDepenses = arr(s.categoriesDepenses, []);
   // Loyer et abonnements sont désormais gérés par les charges fixes ; retrait unique des anciennes catégories par défaut.
-  if (!db.settings.categoriesMigrees) {
-    db.settings.categoriesDepenses = db.settings.categoriesDepenses.filter((c) => c !== "Local / loyer" && c !== "Logiciels / abonnements");
-    db.settings.categoriesMigrees = true;
+  if (!s.categoriesMigrees) {
+    s.categoriesDepenses = s.categoriesDepenses.filter((c) => c !== "Local / loyer" && c !== "Logiciels / abonnements");
+    s.categoriesMigrees = true;
   }
-  db.settings.chargesFixes = db.settings.chargesFixes || def.settings.chargesFixes;
-  db.settings.profil = db.settings.profil || def.settings.profil;
-  db.settings.tresorerie = db.settings.tresorerie || def.settings.tresorerie;
-  db.settings.tresorerie.moisCoussin = db.settings.tresorerie.moisCoussin ?? 3;
+  s.chargesFixes = arr(s.chargesFixes, def.settings.chargesFixes);
+  s.chargesFixes.forEach((c) => {
+    c.historique = arr(c.historique, []);
+    c.montant = Number(c.montant) || 0;
+  });
+  s.profil = s.profil || def.settings.profil;
+  s.tresorerie = { ...def.settings.tresorerie, ...(s.tresorerie || {}) };
+  s.tresorerie.moisCoussin = s.tresorerie.moisCoussin ?? 3;
+  migrateDB(db);
   return db;
 }
 
-function loadDB() {
+/* ---- Copies de sécurité automatiques ---- */
+
+function readSnapshots() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      const db = defaultDB();
-      saveDB(db);
-      return db;
-    }
-    return normalizeDB(JSON.parse(raw));
+    const list = JSON.parse(localStorage.getItem(SNAPSHOTS_KEY));
+    return Array.isArray(list) ? list : [];
   } catch (e) {
-    console.error("Erreur de lecture des données, réinitialisation.", e);
+    return [];
+  }
+}
+
+function takeSnapshot(raw, reason) {
+  if (!raw) return;
+  try {
+    const list = readSnapshots();
+    const last = list[list.length - 1];
+    if (last && last.raw === raw) return;
+    list.push({ t: new Date().toISOString(), reason, raw });
+    while (list.length > MAX_SNAPSHOTS) list.shift();
+    for (;;) {
+      try {
+        localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(list));
+        return;
+      } catch (e) {
+        if (list.length <= 1) return;
+        list.shift();
+      }
+    }
+  } catch (e) {
+    console.warn("Copie de sécurité impossible", e);
+  }
+}
+
+function loadDB() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch (e) {
+    console.error("Stockage inaccessible", e);
+  }
+  if (!raw) {
     const db = defaultDB();
     saveDB(db);
     return db;
   }
+  try {
+    const parsed = JSON.parse(raw);
+    const list = readSnapshots();
+    const last = list[list.length - 1];
+    if ((parsed.version || 1) < SCHEMA_VERSION) takeSnapshot(raw, "avant mise à jour");
+    else if (!last || isoFromDate(new Date(last.t)) !== todayISO()) takeSnapshot(raw, "automatique");
+    return normalizeDB(parsed);
+  } catch (e) {
+    // Jamais d'écrasement : les données enregistrées restent intactes, on en garde une copie et on travaille en mémoire.
+    console.error("Données illisibles : conservées telles quelles.", e);
+    takeSnapshot(raw, "données illisibles");
+    loadProblem = true;
+    return defaultDB();
+  }
 }
 
 function saveDB(db) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    return true;
+  } catch (e) {
+    console.error("Enregistrement impossible", e);
+    setTimeout(() => showToast("Enregistrement impossible : stockage plein ou bloqué"), 0);
+    return false;
+  }
 }
 
 let DB = loadDB();
@@ -146,53 +250,44 @@ function nextMonthKey(key) {
 
 /* ============================= CHARGES FIXES ============================= */
 
-function makeFixedEntry(charge, month) {
-  return {
-    id: uid(),
-    date: `${month}-01`,
-    categorie: charge.nom,
-    montant: charge.montant,
-    note: "",
-    recurringId: charge.id,
-    recurringMonth: month
-  };
-}
-
-// Ajoute, pour chaque mois écoulé depuis la dernière génération, la charge fixe aux dépenses.
-// Les entrées supprimées à la main ne reviennent pas : on avance genereJusqua au lieu de vérifier l'existence.
-function ensureRecurringEntries() {
-  const current = monthKey();
-  let changed = false;
-  DB.settings.chargesFixes.forEach((c) => {
-    if (!(c.montant > 0) || !c.genereJusqua) return;
-    let m = c.genereJusqua;
-    while (m < current) {
-      m = nextMonthKey(m);
-      DB.depenses.push(makeFixedEntry(c, m));
-      changed = true;
-    }
-    c.genereJusqua = m;
-  });
-  if (changed) saveDB(DB);
-  return changed;
-}
-
-// À appeler après création ou modification d'une charge fixe pour synchroniser le mois en cours.
-function syncFixedChargeNow(c) {
-  const current = monthKey();
-  const entry = DB.depenses.find((d) => d.recurringId === c.id && d.recurringMonth === current);
-  if (c.montant > 0) {
-    if (!c.genereJusqua) {
-      DB.depenses.push(makeFixedEntry(c, current));
-      c.genereJusqua = current;
-    } else if (entry) {
-      entry.montant = c.montant;
-      entry.categorie = c.nom;
-    }
-  } else {
-    if (entry) DB.depenses.splice(DB.depenses.indexOf(entry), 1);
-    c.genereJusqua = null;
+// Une charge fixe compte pour TOUS les mois (passés, en cours, à venir). Son montant est celui de l'historique :
+// un changement s'applique à partir du mois en cours, sans réécrire les mois passés.
+function montantFixe(c, year, month) {
+  const h = c.historique || [];
+  if (!h.length) return c.montant || 0;
+  const key = `${year}-${String(month + 1).padStart(2, "0")}`;
+  let montant = h[0].montant;
+  for (const e of h) {
+    if (e.depuis <= key) montant = e.montant;
+    else break;
   }
+  return montant;
+}
+
+function setFixedAmount(c, montant) {
+  const cur = monthKey();
+  const h = (c.historique = c.historique || []);
+  const last = h[h.length - 1];
+  if (last && last.depuis === cur) last.montant = montant;
+  else if (!last || last.montant !== montant) h.push({ depuis: cur, montant });
+  c.montant = montant;
+}
+
+function chargesFixesTotal(year, month) {
+  return roundCents(DB.settings.chargesFixes.reduce((s, c) => s + montantFixe(c, year, month), 0));
+}
+
+// Dépenses "virtuelles" du mois : jamais stockées, recalculées à chaque affichage.
+function fixedEntriesFor(year, month) {
+  const key = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const entries = [];
+  DB.settings.chargesFixes.forEach((c) => {
+    const montant = montantFixe(c, year, month);
+    if (montant > 0) {
+      entries.push({ id: `fixe-${c.id}-${key}`, date: `${key}-01`, categorie: c.nom, montant, note: "", recurringId: c.id, virtual: true });
+    }
+  });
+  return entries;
 }
 
 /* ============================= NAVIGATION ============================= */
@@ -256,10 +351,10 @@ let currentEntryType = "prestation";
 let selectedTypeId = null;
 let selectedMode = null;
 
-document.querySelectorAll(".seg-btn").forEach((btn) => {
+document.querySelectorAll("[data-entry-type]").forEach((btn) => {
   btn.addEventListener("click", () => {
     currentEntryType = btn.dataset.entryType;
-    document.querySelectorAll(".seg-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    document.querySelectorAll("[data-entry-type]").forEach((b) => b.classList.toggle("active", b === btn));
     document.getElementById("form-prestation").classList.toggle("hidden", currentEntryType !== "prestation");
     document.getElementById("form-depense").classList.toggle("hidden", currentEntryType !== "depense");
   });
@@ -454,7 +549,7 @@ function computeTresorerie(now = new Date()) {
     }
   }
 
-  const fixes = roundCents(DB.settings.chargesFixes.reduce((s, c) => s + (c.montant || 0), 0));
+  const fixes = chargesFixesTotal(now.getFullYear(), now.getMonth());
   let sommePonctuelles = 0;
   let moisAvecActivite = 0;
   for (let k = -3; k <= -1; k++) {
@@ -468,13 +563,15 @@ function computeTresorerie(now = new Date()) {
   }
   const ponctuellesMoy = moisAvecActivite ? roundCents(sommePonctuelles / moisAvecActivite) : 0;
   const mensuel = roundCents(fixes + ponctuellesMoy);
-  const coussin = roundCents(mensuel * t.moisCoussin);
+  // Deux façons de fixer la trésorerie à garder : un coussin (N mois de charges) ou un montant libre.
+  const mode = t.mode === "libre" ? "libre" : "coussin";
+  const coussin = mode === "libre" ? roundCents(Math.max(0, t.montantLibre || 0)) : roundCents(mensuel * t.moisCoussin);
   urssaf = roundCents(urssaf);
 
   const configured = t.montant !== null && t.montant !== undefined;
   const salaire = configured ? Math.max(0, roundCents(t.montant - urssaf - coussin)) : 0;
   return {
-    configured, montant: t.montant, date: t.date, moisCoussin: t.moisCoussin,
+    configured, montant: t.montant, date: t.date, mode, moisCoussin: t.moisCoussin,
     urssaf, urssafMois, fixes, ponctuellesMoy, mensuel, coussin, salaire,
     manque: configured ? Math.max(0, roundCents(urssaf + coussin - t.montant)) : 0,
     resteApres: configured ? roundCents(t.montant - salaire) : 0
@@ -499,21 +596,24 @@ function renderTresorerieCard() {
 
   const ageJours = t.date ? Math.floor((new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate()) - new Date(t.date + "T00:00:00")) / 86400000) : 0;
   const moisUrssaf = t.urssafMois.length ? ` (${t.urssafMois.join(", ")})` : "";
+  const libre = t.mode === "libre";
+  const reserveNom = libre ? "réserve" : "coussin";
+  const reserveLigne = libre ? "Réserve de trésorerie choisie" : `Coussin de sécurité (${t.moisCoussin} mois de charges)`;
   let conseil;
   if (t.salaire > 0) {
-    conseil = `Versez-vous <strong>${fmtEUR(t.salaire)}</strong> : il restera ${fmtEUR(t.resteApres)} sur le compte (${fmtEUR(t.urssaf)} pour l'URSSAF + ${fmtEUR(t.coussin)} de coussin).`;
+    conseil = `Versez-vous <strong>${fmtEUR(t.salaire)}</strong> : il restera ${fmtEUR(t.resteApres)} sur le compte (${fmtEUR(t.urssaf)} pour l'URSSAF + ${fmtEUR(t.coussin)} de ${reserveNom}).`;
   } else {
-    conseil = `Pas de versement conseillé pour l'instant : il manque ${fmtEUR(t.manque)} pour couvrir l'URSSAF et le coussin.`;
+    conseil = `Pas de versement conseillé pour l'instant : il manque ${fmtEUR(t.manque)} pour couvrir l'URSSAF et la ${reserveNom}.`;
   }
   body.innerHTML = `
     <div class="stat-row"><span>Trésorerie actuelle</span><strong>${fmtEUR(t.montant)}</strong></div>
     <div class="stat-row muted"><span>mise à jour le ${t.date ? t.date.split("-").reverse().join("/") : "—"}</span><span></span></div>
     <div class="stat-row"><span>À garder pour l'URSSAF${moisUrssaf}</span><span>- ${fmtEUR(t.urssaf)}</span></div>
-    <div class="stat-row"><span>Coussin de sécurité (${t.moisCoussin} mois de charges)</span><span>- ${fmtEUR(t.coussin)}</span></div>
+    <div class="stat-row"><span>${reserveLigne}</span><span>- ${fmtEUR(t.coussin)}</span></div>
     <div class="stat-row total"><span>Salaire conseillé</span><strong>${fmtEUR(t.salaire)}</strong></div>
     <div class="hint">${conseil}</div>
     ${ageJours > 10 ? `<div class="hint" style="color:var(--danger)">Votre trésorerie date de ${ageJours} jours : mettez-la à jour pour un conseil fiable.</div>` : ""}
-    ${t.fixes === 0 ? `<div class="hint" style="color:var(--danger)">Aucune charge fixe renseignée (Réglages) : le coussin est calculé à 0 €.</div>` : ""}
+    ${!libre && t.fixes === 0 ? `<div class="hint" style="color:var(--danger)">Aucune charge fixe renseignée (Réglages) : le coussin est calculé à 0 €.</div>` : ""}
   `;
 }
 
@@ -545,7 +645,7 @@ function byDateAsc(a, b) {
 
 function computeBilan(year, month) {
   const prestas = DB.prestations.filter((p) => inMonth(p.date, year, month)).sort(byDateAsc);
-  const depenses = DB.depenses.filter((d) => inMonth(d.date, year, month)).sort(byDateAsc);
+  const depenses = [...DB.depenses.filter((d) => inMonth(d.date, year, month)), ...fixedEntriesFor(year, month)].sort(byDateAsc);
 
   const ca = roundCents(prestas.reduce((s, p) => s + p.montant, 0));
   const percu = roundCents(prestas.reduce((s, p) => s + p.montantPercu, 0));
@@ -645,7 +745,8 @@ function renderHistorique() {
 
   const items = [
     ...DB.prestations.filter((p) => inMonth(p.date, histYear, histMonth)).map((p) => ({ ...p, kind: "prestation" })),
-    ...DB.depenses.filter((d) => inMonth(d.date, histYear, histMonth)).map((d) => ({ ...d, kind: "depense" }))
+    ...DB.depenses.filter((d) => inMonth(d.date, histYear, histMonth)).map((d) => ({ ...d, kind: "depense" })),
+    ...fixedEntriesFor(histYear, histMonth).map((d) => ({ ...d, kind: "depense" }))
   ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
   if (items.length === 0) {
@@ -681,8 +782,20 @@ function renderHistorique() {
         <div class="entry-amount negative">-${fmtEUR(item.montant)}</div>
       `;
     }
-    el.addEventListener("click", () => openEntryModal(item));
+    el.addEventListener("click", () => (item.virtual ? openFixedInfoModal(item) : openEntryModal(item)));
     list.appendChild(el);
+  });
+}
+
+function openFixedInfoModal(item) {
+  openModal(`
+    <div class="card-title">${escapeHtml(item.categorie)}</div>
+    <p class="hint" style="margin-top:0">Charge mensuelle fixe de <strong>${fmtEUR(item.montant)}</strong>, comptée automatiquement chaque mois. Pour la modifier, allez dans Réglages → Charges mensuelles fixes : le nouveau montant s'applique à partir du mois en cours, sans changer les mois passés.</p>
+    <button type="button" class="btn-primary" id="fixed-info-go">Ouvrir les réglages</button>
+  `);
+  document.getElementById("fixed-info-go").addEventListener("click", () => {
+    closeModal();
+    showScreen("reglages");
   });
 }
 
@@ -776,6 +889,7 @@ function renderReglages() {
   document.getElementById("profil-siret").value = DB.settings.profil.siret || "";
   renderChargesFixes();
   renderTresorerieSettings();
+  renderSnapshots();
 
   const typesList = document.getElementById("types-list");
   typesList.innerHTML = "";
@@ -833,16 +947,15 @@ function renderChargesFixes() {
     const montantInput = row.querySelector(".fx-montant");
     const save = () => {
       c.nom = nomInput.value.trim() || c.nom;
-      c.montant = Math.max(0, roundCents(parseNum(montantInput.value)));
-      syncFixedChargeNow(c);
+      const montant = Math.max(0, roundCents(parseNum(montantInput.value)));
+      if (montant !== c.montant) setFixedAmount(c, montant);
       saveDB(DB);
       updateFixedTotal();
     };
     nomInput.addEventListener("change", save);
     montantInput.addEventListener("change", save);
     row.querySelector("button").addEventListener("click", () => {
-      const current = monthKey();
-      DB.depenses = DB.depenses.filter((d) => !(d.recurringId === c.id && d.recurringMonth === current));
+      if (!confirm(`Supprimer « ${c.nom} » de tous les mois ? Pour l'arrêter seulement à partir de maintenant, mettez son montant à 0 €.`)) return;
       DB.settings.chargesFixes = DB.settings.chargesFixes.filter((x) => x.id !== c.id);
       saveDB(DB);
       renderChargesFixes();
@@ -852,11 +965,26 @@ function renderChargesFixes() {
   updateFixedTotal();
 }
 
+let tresModeChoisi = "coussin";
+
+function setTresMode(mode) {
+  tresModeChoisi = mode;
+  document.querySelectorAll("[data-tres-mode]").forEach((b) => b.classList.toggle("active", b.dataset.tresMode === mode));
+  document.getElementById("tres-coussin-fields").classList.toggle("hidden", mode !== "coussin");
+  document.getElementById("tres-libre-fields").classList.toggle("hidden", mode !== "libre");
+}
+
+document.querySelectorAll("[data-tres-mode]").forEach((btn) => {
+  btn.addEventListener("click", () => setTresMode(btn.dataset.tresMode));
+});
+
 function renderTresorerieSettings() {
   const t = DB.settings.tresorerie;
   document.getElementById("tres-montant").value = t.montant ?? "";
   document.getElementById("tres-mois").value = t.moisCoussin;
+  document.getElementById("tres-libre").value = t.montantLibre ?? "";
   document.getElementById("tres-date").textContent = t.date ? `Mis à jour le ${t.date.split("-").reverse().join("/")}` : "Pas encore renseignée";
+  setTresMode(t.mode === "libre" ? "libre" : "coussin");
   updateCoussinPreview();
 }
 
@@ -880,13 +1008,17 @@ document.getElementById("btn-save-tresorerie").addEventListener("click", () => {
   if (montant !== t.montant) t.date = montant === null ? null : todayISO();
   t.montant = montant;
   t.moisCoussin = Math.min(12, Math.max(0, Math.round(parseNum(document.getElementById("tres-mois").value))));
+  const libreRaw = document.getElementById("tres-libre").value.trim();
+  t.montantLibre = libreRaw === "" ? null : Math.max(0, roundCents(parseNum(libreRaw)));
+  t.mode = tresModeChoisi;
   saveDB(DB);
   renderTresorerieSettings();
   showToast("Trésorerie enregistrée ✓");
 });
 
 function updateFixedTotal() {
-  const total = roundCents(DB.settings.chargesFixes.reduce((s, c) => s + (c.montant || 0), 0));
+  const today = new Date();
+  const total = chargesFixesTotal(today.getFullYear(), today.getMonth());
   document.getElementById("fixed-total").textContent = fmtEUR(total);
   updateCoussinPreview();
 }
@@ -895,9 +1027,9 @@ document.getElementById("btn-add-fixed").addEventListener("click", () => {
   const nom = document.getElementById("new-fixed-nom").value.trim();
   const montant = Math.max(0, roundCents(parseNum(document.getElementById("new-fixed-montant").value)));
   if (!nom) { showToast("Indiquez un nom"); return; }
-  const charge = { id: uid(), nom, montant, genereJusqua: null };
+  const charge = { id: uid(), nom, montant: 0, historique: [] };
+  if (montant > 0) setFixedAmount(charge, montant);
   DB.settings.chargesFixes.push(charge);
-  syncFixedChargeNow(charge);
   saveDB(DB);
   document.getElementById("new-fixed-nom").value = "";
   document.getElementById("new-fixed-montant").value = "";
@@ -955,6 +1087,70 @@ document.getElementById("btn-add-cat").addEventListener("click", () => {
   showToast("Catégorie ajoutée ✓");
 });
 
+/* ---- Copies de sécurité automatiques ---- */
+
+function snapshotStats(raw) {
+  try {
+    const d = JSON.parse(raw);
+    return `${(d.prestations || []).length} prestations · ${(d.depenses || []).length} dépenses`;
+  } catch (e) {
+    return "contenu illisible";
+  }
+}
+
+function renderSnapshots() {
+  const list = document.getElementById("snapshots-list");
+  list.innerHTML = "";
+  const snaps = readSnapshots();
+  if (!snaps.length) {
+    list.innerHTML = `<div class="hint" style="margin-top:0">Aucune copie pour le moment : la première est créée à la prochaine ouverture de l'appli.</div>`;
+    return;
+  }
+  snaps
+    .map((s, i) => ({ s, i }))
+    .reverse()
+    .forEach(({ s, i }) => {
+      const d = new Date(s.t);
+      const row = document.createElement("div");
+      row.className = "setting-item";
+      row.innerHTML = `
+        <div>
+          <div class="setting-item-name">${d.toLocaleDateString("fr-FR")} à ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</div>
+          <div class="setting-item-price">${escapeHtml(s.reason)} · ${snapshotStats(s.raw)}</div>
+        </div>
+        <button type="button" class="btn-danger-text" style="color:var(--brun)">Restaurer</button>
+      `;
+      row.querySelector("button").addEventListener("click", () => restoreSnapshot(i));
+      list.appendChild(row);
+    });
+}
+
+function restoreSnapshot(index) {
+  const s = readSnapshots()[index];
+  if (!s) return;
+  const d = new Date(s.t);
+  if (!confirm(`Restaurer la copie du ${d.toLocaleDateString("fr-FR")} à ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} (${snapshotStats(s.raw)}) ? Vos données actuelles seront remplacées ; une copie d'elles est conservée.`)) return;
+  try {
+    const restored = normalizeDB(JSON.parse(s.raw));
+    takeSnapshot(localStorage.getItem(STORAGE_KEY), "avant restauration");
+    DB = restored;
+    saveDB(DB);
+    document.getElementById("recovery-banner").classList.add("hidden");
+    renderTypeGrid();
+    renderCategorieSelect();
+    showScreen("reglages");
+    showToast("Copie restaurée ✓");
+  } catch (e) {
+    console.error(e);
+    showToast("Restauration impossible");
+  }
+}
+
+document.getElementById("btn-recovery-open").addEventListener("click", () => {
+  showScreen("reglages");
+  document.getElementById("snapshots-card").scrollIntoView();
+});
+
 /* ---- Export / Import / CSV ---- */
 
 document.getElementById("btn-export").addEventListener("click", () => {
@@ -970,8 +1166,9 @@ document.getElementById("btn-import").addEventListener("change", (e) => {
     try {
       const imported = JSON.parse(reader.result);
       if (!imported.prestations || !imported.depenses || !imported.settings) throw new Error("format invalide");
-      DB = normalizeDB(imported);
-      ensureRecurringEntries();
+      const restored = normalizeDB(imported);
+      takeSnapshot(localStorage.getItem(STORAGE_KEY), "avant import");
+      DB = restored;
       saveDB(DB);
       renderTypeGrid();
       renderCategorieSelect();
@@ -986,9 +1183,8 @@ document.getElementById("btn-import").addEventListener("change", (e) => {
 });
 
 document.getElementById("btn-export-csv").addEventListener("click", () => {
-  const prestas = DB.prestations.filter((p) => inMonth(p.date, bilanYear, bilanMonth));
-  const depenses = DB.depenses.filter((d) => inMonth(d.date, bilanYear, bilanMonth));
-  let csv = "Type;Date;Libellé;Mode;Montant facturé;Montant perçu\n";
+  const { prestas, depenses } = computeBilan(bilanYear, bilanMonth);
+  let csv ="Type;Date;Libellé;Mode;Montant facturé;Montant perçu\n";
   prestas.forEach((p) => {
     csv += `Prestation;${p.date};${csvSafe(p.typeLabel)};${csvSafe(p.mode)};${p.montant.toFixed(2)};${p.montantPercu.toFixed(2)}\n`;
   });
@@ -1045,17 +1241,15 @@ function escapeAttr(str) {
 
 /* ============================= INIT ============================= */
 
-ensureRecurringEntries();
 document.getElementById("prestation-date").value = todayISO();
 document.getElementById("depense-date").value = todayISO();
 renderTypeGrid();
 renderCategorieSelect();
 showScreen("saisie");
+if (loadProblem) document.getElementById("recovery-banner").classList.remove("hidden");
 
-// L'appli installée peut rester ouverte en arrière-plan à cheval sur deux mois.
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && ensureRecurringEntries()) showScreen(currentScreen);
-});
+// Demande au navigateur de ne pas effacer les données de l'appli quand le stockage est saturé.
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
