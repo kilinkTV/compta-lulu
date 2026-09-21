@@ -20,7 +20,8 @@ function defaultDB() {
         { id: uid(), nom: "Cure drainage corps entier (5 séances)", tarif: 360 },
         { id: uid(), nom: "Cure drainage zone au choix (5 séances)", tarif: 200 }
       ],
-      categoriesDepenses: ["Fournitures", "Local / loyer", "Déplacements", "Formation", "Logiciels / abonnements", "Autre"],
+      categoriesDepenses: ["Fournitures", "Déplacements", "Formation", "Autre"],
+      categoriesMigrees: true,
       chargesFixes: defaultChargesFixes(),
       profil: { nom: "Lucile Le Pocreau", siret: "" }
     }
@@ -45,6 +46,11 @@ function normalizeDB(db) {
   db.settings.sumupRate = db.settings.sumupRate ?? 1.75;
   db.settings.typesPrestations = db.settings.typesPrestations || [];
   db.settings.categoriesDepenses = db.settings.categoriesDepenses || [];
+  // Loyer et abonnements sont désormais gérés par les charges fixes ; retrait unique des anciennes catégories par défaut.
+  if (!db.settings.categoriesMigrees) {
+    db.settings.categoriesDepenses = db.settings.categoriesDepenses.filter((c) => c !== "Local / loyer" && c !== "Logiciels / abonnements");
+    db.settings.categoriesMigrees = true;
+  }
   db.settings.chargesFixes = db.settings.chargesFixes || def.settings.chargesFixes;
   db.settings.profil = db.settings.profil || def.settings.profil;
   return db;
