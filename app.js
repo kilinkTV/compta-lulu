@@ -265,6 +265,8 @@ document.querySelectorAll(".seg-btn").forEach((btn) => {
   });
 });
 
+const AUTRE_ID = "__autre__";
+
 function renderTypeGrid() {
   const grid = document.getElementById("type-grid");
   grid.innerHTML = "";
@@ -281,6 +283,21 @@ function renderTypeGrid() {
     });
     grid.appendChild(el);
   });
+
+  const autre = document.createElement("button");
+  autre.type = "button";
+  autre.className = "tile" + (selectedTypeId === AUTRE_ID ? " selected" : "");
+  autre.innerHTML = `Autre<span class="tile-price">à préciser</span>`;
+  autre.addEventListener("click", () => {
+    selectedTypeId = AUTRE_ID;
+    document.getElementById("prestation-montant").value = "";
+    renderTypeGrid();
+    updateSumupPreview();
+    document.getElementById("prestation-autre").focus();
+  });
+  grid.appendChild(autre);
+
+  document.getElementById("autre-wrap").classList.toggle("hidden", selectedTypeId !== AUTRE_ID);
 }
 
 document.querySelectorAll("#mode-grid .tile").forEach((btn) => {
@@ -325,6 +342,11 @@ document.getElementById("form-prestation").addEventListener("submit", (e) => {
   if (montant <= 0) { showToast("Montant invalide"); return; }
 
   const typeObj = DB.settings.typesPrestations.find((t) => t.id === selectedTypeId);
+  let typeLabel = typeObj ? typeObj.nom : "Prestation";
+  if (selectedTypeId === AUTRE_ID) {
+    const desc = document.getElementById("prestation-autre").value.trim();
+    typeLabel = desc ? `Autre : ${desc}` : "Autre";
+  }
   const sumupRate = DB.settings.sumupRate;
   const fee = selectedMode === "CB" ? roundCents(montant * (sumupRate / 100)) : 0;
   const montantPercu = roundCents(montant - fee);
@@ -332,7 +354,7 @@ document.getElementById("form-prestation").addEventListener("submit", (e) => {
   DB.prestations.push({
     id: uid(),
     date,
-    typeLabel: typeObj ? typeObj.nom : "Prestation",
+    typeLabel,
     montant,
     mode: selectedMode,
     sumupRateApplied: selectedMode === "CB" ? sumupRate : 0,
@@ -343,6 +365,7 @@ document.getElementById("form-prestation").addEventListener("submit", (e) => {
   showToast("Prestation enregistrée ✓");
 
   // reset for fast repeated entry, keep date and type selection
+  document.getElementById("prestation-autre").value = "";
   document.getElementById("prestation-note").value = "";
   document.getElementById("prestation-montant").value = "";
   selectedMode = null;
