@@ -23,7 +23,8 @@ function defaultDB() {
       categoriesDepenses: ["Fournitures", "Déplacements", "Formation", "Autre"],
       categoriesMigrees: true,
       chargesFixes: defaultChargesFixes(),
-      profil: { nom: "Lucile Le Pocreau", siret: "" }
+      profil: { nom: "Lucile Le Pocreau", siret: "" },
+      tresorerie: { montant: null, date: null, moisCoussin: 3 }
     }
   };
 }
@@ -53,6 +54,8 @@ function normalizeDB(db) {
   }
   db.settings.chargesFixes = db.settings.chargesFixes || def.settings.chargesFixes;
   db.settings.profil = db.settings.profil || def.settings.profil;
+  db.settings.tresorerie = db.settings.tresorerie || def.settings.tresorerie;
+  db.settings.tresorerie.moisCoussin = db.settings.tresorerie.moisCoussin ?? 3;
   return db;
 }
 
@@ -387,15 +390,125 @@ function shiftBilanMonth(delta) {
   renderBilan();
 }
 
-function nextEcheance(year, month) {
-  // Règle observée sur l'attestation URSSAF : recettes du mois M
-  // -> prélèvement estimé le 2 du mois M+2. A vérifier sur l'espace URSSAF.
-  let m = month + 2;
-  let y = year;
-  if (m > 11) { m -= 12; y += 1; }
-  const d = new Date(y, m, 2);
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+// Règle observée sur l'attestation URSSAF : recettes du mois M
+// -> prélèvement estimé le 2 du mois M+2. A vérifier sur l'espace URSSAF.
+function echeanceDate(year, month) {
+  return new Date(year, month + 2, 2);
 }
+
+function nextEcheance(year, month) {
+  return echeanceDate(year, month).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function shiftMonth(year, month, delta) {
+  const d = new Date(year, month + delta, 1);
+  return { year: d.getFullYear(), month: d.getMonth() };
+}
+
+/* ============================= TRESORERIE ============================= */
+
+// Salaire conseillé = trésorerie actuelle - cotisations URSSAF déjà dues mais pas encore prélevées - coussin de sécurité.
+// Coussin = N mois de charges fixes + dépenses courantes moyennes : en micro-entreprise les cotisations suivent le
+// chiffre d'affaires, ce sont donc les charges fixes qui pèsent même sans revenu.
+function computeTresorerie(now = new Date()) {
+  const t = DB.settings.tresorerie;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  let urssaf = 0;
+  const urssafMois = [];
+  for (let k = -3; k <= 0; k++) {
+    const m = shiftMonth(now.getFullYear(), now.getMonth(), k);
+    if (echeanceDate(m.year, m.month) > today) {
+      const cot = computeBilan(m.year, m.month).cotTotal;
+      urssaf += cot;
+      if (cot > 0) urssafMois.push(MOIS_FR[m.month].toLowerCase());
+    }
+  }
+
+  const fixes = roundCents(DB.settings.chargesFixes.reduce((s, c) => s + (c.montant || 0), 0));
+  let sommePonctuelles = 0;
+  let moisAvecActivite = 0;
+  for (let k = -3; k <= -1; k++) {
+    const m = shiftMonth(now.getFullYear(), now.getMonth(), k);
+    const b = computeBilan(m.year, m.month);
+    const ponctuelles = b.depenses.filter((d) => !d.recurringId);
+    if (b.prestas.length || ponctuelles.length) {
+      sommePonctuelles += ponctuelles.reduce((s, d) => s + d.montant, 0);
+      moisAvecActivite++;
+    }
+  }
+  const ponctuellesMoy = moisAvecActivite ? roundCents(sommePonctuelles / moisAvecActivite) : 0;
+  const mensuel = roundCents(fixes + ponctuellesMoy);
+  const coussin = roundCents(mensuel * t.moisCoussin);
+  urssaf = roundCents(urssaf);
+
+  const configured = t.montant !== null && t.montant !== undefined;
+  const salaire = configured ? Math.max(0, roundCents(t.montant - urssaf - coussin)) : 0;
+  return {
+    configured, montant: t.montant, date: t.date, moisCoussin: t.moisCoussin,
+    urssaf, urssafMois, fixes, ponctuellesMoy, mensuel, coussin, salaire,
+    manque: configured ? Math.max(0, roundCents(urssaf + coussin - t.montant)) : 0,
+    resteApres: configured ? roundCents(t.montant - salaire) : 0
+  };
+}
+
+function renderTresorerieCard() {
+  const card = document.getElementById("tresorerie-card");
+  const nowD = new Date();
+  const prev = shiftMonth(nowD.getFullYear(), nowD.getMonth(), -1);
+  const isCurrent = bilanYear === nowD.getFullYear() && bilanMonth === nowD.getMonth();
+  const isPrevious = bilanYear === prev.year && bilanMonth === prev.month;
+  card.classList.toggle("hidden", !(isCurrent || isPrevious));
+  if (!(isCurrent || isPrevious)) return;
+
+  const t = computeTresorerie(nowD);
+  const body = document.getElementById("tresorerie-body");
+  if (!t.configured) {
+    body.innerHTML = `<div class="hint" style="margin-top:0">Renseignez votre trésorerie actuelle (solde du compte pro) pour obtenir un conseil de versement de salaire.</div>`;
+    return;
+  }
+
+  const ageJours = t.date ? Math.floor((new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate()) - new Date(t.date + "T00:00:00")) / 86400000) : 0;
+  const moisUrssaf = t.urssafMois.length ? ` (${t.urssafMois.join(", ")})` : "";
+  let conseil;
+  if (t.salaire > 0) {
+    conseil = `Versez-vous <strong>${fmtEUR(t.salaire)}</strong> : il restera ${fmtEUR(t.resteApres)} sur le compte (${fmtEUR(t.urssaf)} pour l'URSSAF + ${fmtEUR(t.coussin)} de coussin).`;
+  } else {
+    conseil = `Pas de versement conseillé pour l'instant : il manque ${fmtEUR(t.manque)} pour couvrir l'URSSAF et le coussin.`;
+  }
+  body.innerHTML = `
+    <div class="stat-row"><span>Trésorerie actuelle</span><strong>${fmtEUR(t.montant)}</strong></div>
+    <div class="stat-row muted"><span>mise à jour le ${t.date ? t.date.split("-").reverse().join("/") : "—"}</span><span></span></div>
+    <div class="stat-row"><span>À garder pour l'URSSAF${moisUrssaf}</span><span>- ${fmtEUR(t.urssaf)}</span></div>
+    <div class="stat-row"><span>Coussin de sécurité (${t.moisCoussin} mois de charges)</span><span>- ${fmtEUR(t.coussin)}</span></div>
+    <div class="stat-row total"><span>Salaire conseillé</span><strong>${fmtEUR(t.salaire)}</strong></div>
+    <div class="hint">${conseil}</div>
+    ${ageJours > 10 ? `<div class="hint" style="color:var(--danger)">Votre trésorerie date de ${ageJours} jours : mettez-la à jour pour un conseil fiable.</div>` : ""}
+    ${t.fixes === 0 ? `<div class="hint" style="color:var(--danger)">Aucune charge fixe renseignée (Réglages) : le coussin est calculé à 0 €.</div>` : ""}
+  `;
+}
+
+function openTresorerieModal() {
+  const t = DB.settings.tresorerie;
+  openModal(`
+    <div class="card-title">Trésorerie actuelle</div>
+    <label class="field-label">Solde actuel du compte pro (€)</label>
+    <input type="number" id="tres-input" step="0.01" inputmode="decimal" value="${t.montant ?? ""}" />
+    <button type="button" class="btn-primary" id="tres-save">Enregistrer</button>
+  `);
+  document.getElementById("tres-save").addEventListener("click", () => {
+    const raw = document.getElementById("tres-input").value.trim();
+    if (raw === "") { showToast("Indiquez un montant"); return; }
+    DB.settings.tresorerie.montant = roundCents(parseNum(raw));
+    DB.settings.tresorerie.date = todayISO();
+    saveDB(DB);
+    closeModal();
+    showScreen(currentScreen);
+    showToast("Trésorerie mise à jour ✓");
+  });
+}
+
+document.getElementById("btn-update-tresorerie").addEventListener("click", openTresorerieModal);
 
 function byDateAsc(a, b) {
   return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
@@ -457,6 +570,7 @@ function renderBilan() {
   document.getElementById("stat-depenses").textContent = fmtEUR(b.totalDepenses);
   document.getElementById("stat-fixes").textContent = fmtEUR(b.depensesFixes);
   document.getElementById("stat-net").textContent = fmtEUR(b.net);
+  renderTresorerieCard();
 
   const repList = document.getElementById("repartition-list");
   repList.innerHTML = "";
@@ -632,6 +746,7 @@ function renderReglages() {
   document.getElementById("profil-nom").value = DB.settings.profil.nom || "";
   document.getElementById("profil-siret").value = DB.settings.profil.siret || "";
   renderChargesFixes();
+  renderTresorerieSettings();
 
   const typesList = document.getElementById("types-list");
   typesList.innerHTML = "";
@@ -708,9 +823,43 @@ function renderChargesFixes() {
   updateFixedTotal();
 }
 
+function renderTresorerieSettings() {
+  const t = DB.settings.tresorerie;
+  document.getElementById("tres-montant").value = t.montant ?? "";
+  document.getElementById("tres-mois").value = t.moisCoussin;
+  document.getElementById("tres-date").textContent = t.date ? `Mis à jour le ${t.date.split("-").reverse().join("/")}` : "Pas encore renseignée";
+  updateCoussinPreview();
+}
+
+function updateCoussinPreview() {
+  const mois = Math.min(12, Math.max(0, Math.round(parseNum(document.getElementById("tres-mois").value))));
+  const t = computeTresorerie();
+  const el = document.getElementById("tres-reco");
+  if (t.mensuel === 0) {
+    el.textContent = "Renseignez vos charges fixes ci-dessus pour calculer le coussin recommandé.";
+    return;
+  }
+  el.innerHTML = `Coussin à garder : <strong>${fmtEUR(roundCents(t.mensuel * mois))}</strong> (${mois} × ${fmtEUR(t.mensuel)} par mois = charges fixes ${fmtEUR(t.fixes)} + dépenses courantes moyennes ${fmtEUR(t.ponctuellesMoy)}).`;
+}
+
+document.getElementById("tres-mois").addEventListener("input", updateCoussinPreview);
+
+document.getElementById("btn-save-tresorerie").addEventListener("click", () => {
+  const t = DB.settings.tresorerie;
+  const raw = document.getElementById("tres-montant").value.trim();
+  const montant = raw === "" ? null : roundCents(parseNum(raw));
+  if (montant !== t.montant) t.date = montant === null ? null : todayISO();
+  t.montant = montant;
+  t.moisCoussin = Math.min(12, Math.max(0, Math.round(parseNum(document.getElementById("tres-mois").value))));
+  saveDB(DB);
+  renderTresorerieSettings();
+  showToast("Trésorerie enregistrée ✓");
+});
+
 function updateFixedTotal() {
   const total = roundCents(DB.settings.chargesFixes.reduce((s, c) => s + (c.montant || 0), 0));
   document.getElementById("fixed-total").textContent = fmtEUR(total);
+  updateCoussinPreview();
 }
 
 document.getElementById("btn-add-fixed").addEventListener("click", () => {

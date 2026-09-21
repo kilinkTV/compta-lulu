@@ -282,6 +282,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
   padding: 7px 0;
   font-size: 0.92rem;
 }
+.stat-card .stat-row > :last-child { white-space: nowrap; }
 .stat-row.muted { color: var(--text-muted); font-size: 0.82rem; }
 .stat-row.total {
   border-top: 1px solid var(--border);
