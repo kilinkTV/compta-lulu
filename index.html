@@ -110,6 +110,7 @@
 
     <div class="card stat-card">
       <div class="stat-row"><span>Total dépenses</span><span id="stat-depenses">0,00 €</span></div>
+      <div class="stat-row muted"><span>dont charges fixes</span><span id="stat-fixes">0,00 €</span></div>
       <div class="stat-row total"><span>Reste net réel (après URSSAF et dépenses)</span><strong id="stat-net">0,00 €</strong></div>
     </div>
 
@@ -117,6 +118,8 @@
       <div class="card-title">Répartition par mode de paiement</div>
       <div id="repartition-list"></div>
     </div>
+
+    <button type="button" id="btn-export-pdf" class="btn-primary">Exporter le bilan en PDF</button>
   </section>
 
   <!-- ===================== ECRAN HISTORIQUE ===================== -->
@@ -152,6 +155,18 @@
     </div>
 
     <div class="card">
+      <div class="card-title">Charges mensuelles fixes</div>
+      <p class="hint">Ajoutées automatiquement à vos dépenses le 1er de chaque mois. Renseignez le montant mensuel (charge annuelle : divisez par 12). Un montant à 0 désactive la ligne.</p>
+      <div id="fixed-list"></div>
+      <div class="fixed-total"><span>Total par mois</span><strong id="fixed-total">0,00 €</strong></div>
+      <div class="add-row">
+        <input type="text" id="new-fixed-nom" placeholder="Nom (ex: Alivio)" />
+        <input type="number" id="new-fixed-montant" placeholder="€ / mois" step="0.01" min="0" inputmode="decimal" />
+        <button type="button" id="btn-add-fixed" class="btn-secondary">Ajouter</button>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-title">Types de prestations</div>
       <div id="types-list"></div>
       <div class="add-row">
@@ -168,6 +183,15 @@
         <input type="text" id="new-cat-nom" placeholder="Ex : Fournitures" />
         <button type="button" id="btn-add-cat" class="btn-secondary">Ajouter</button>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Mon activité (en-tête du PDF)</div>
+      <label class="field-label">Nom</label>
+      <input type="text" id="profil-nom" />
+      <label class="field-label">SIRET (optionnel)</label>
+      <input type="text" id="profil-siret" inputmode="numeric" />
+      <button type="button" id="btn-save-profil" class="btn-secondary">Enregistrer</button>
     </div>
 
     <div class="card">
@@ -204,6 +228,7 @@
   <div class="modal-box" id="modal-box"></div>
 </div>
 
+<script src="pdf.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

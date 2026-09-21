@@ -20,9 +20,34 @@ function defaultDB() {
         { id: uid(), nom: "Cure drainage corps entier (5 séances)", tarif: 360 },
         { id: uid(), nom: "Cure drainage zone au choix (5 séances)", tarif: 200 }
       ],
-      categoriesDepenses: ["Fournitures", "Local / loyer", "Déplacements", "Formation", "Logiciels / abonnements", "Autre"]
+      categoriesDepenses: ["Fournitures", "Local / loyer", "Déplacements", "Formation", "Logiciels / abonnements", "Autre"],
+      chargesFixes: defaultChargesFixes(),
+      profil: { nom: "Lucile Le Pocreau", siret: "" }
     }
   };
+}
+
+function defaultChargesFixes() {
+  return ["Loyer cabinet", "Assurance responsabilité civile", "Assurance cabinet", "Doctolib", "Alivio"].map((nom) => ({
+    id: uid(),
+    nom,
+    montant: 0,
+    genereJusqua: null
+  }));
+}
+
+function normalizeDB(db) {
+  const def = defaultDB();
+  db.prestations = db.prestations || [];
+  db.depenses = db.depenses || [];
+  db.settings = db.settings || def.settings;
+  db.settings.urssaf = db.settings.urssaf || def.settings.urssaf;
+  db.settings.sumupRate = db.settings.sumupRate ?? 1.75;
+  db.settings.typesPrestations = db.settings.typesPrestations || [];
+  db.settings.categoriesDepenses = db.settings.categoriesDepenses || [];
+  db.settings.chargesFixes = db.settings.chargesFixes || def.settings.chargesFixes;
+  db.settings.profil = db.settings.profil || def.settings.profil;
+  return db;
 }
 
 function loadDB() {
@@ -33,15 +58,7 @@ function loadDB() {
       saveDB(db);
       return db;
     }
-    const db = JSON.parse(raw);
-    db.prestations = db.prestations || [];
-    db.depenses = db.depenses || [];
-    db.settings = db.settings || defaultDB().settings;
-    db.settings.urssaf = db.settings.urssaf || defaultDB().settings.urssaf;
-    db.settings.sumupRate = db.settings.sumupRate ?? 1.75;
-    db.settings.typesPrestations = db.settings.typesPrestations || [];
-    db.settings.categoriesDepenses = db.settings.categoriesDepenses || [];
-    return db;
+    return normalizeDB(JSON.parse(raw));
   } catch (e) {
     console.error("Erreur de lecture des données, réinitialisation.", e);
     const db = defaultDB();
@@ -106,12 +123,77 @@ function inMonth(iso, year, month) {
   return y === year && (m - 1) === month;
 }
 
+function monthKey(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function nextMonthKey(key) {
+  let [y, m] = key.split("-").map(Number);
+  m++;
+  if (m > 12) { m = 1; y++; }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+
+/* ============================= CHARGES FIXES ============================= */
+
+function makeFixedEntry(charge, month) {
+  return {
+    id: uid(),
+    date: `${month}-01`,
+    categorie: charge.nom,
+    montant: charge.montant,
+    note: "",
+    recurringId: charge.id,
+    recurringMonth: month
+  };
+}
+
+// Ajoute, pour chaque mois écoulé depuis la dernière génération, la charge fixe aux dépenses.
+// Les entrées supprimées à la main ne reviennent pas : on avance genereJusqua au lieu de vérifier l'existence.
+function ensureRecurringEntries() {
+  const current = monthKey();
+  let changed = false;
+  DB.settings.chargesFixes.forEach((c) => {
+    if (!(c.montant > 0) || !c.genereJusqua) return;
+    let m = c.genereJusqua;
+    while (m < current) {
+      m = nextMonthKey(m);
+      DB.depenses.push(makeFixedEntry(c, m));
+      changed = true;
+    }
+    c.genereJusqua = m;
+  });
+  if (changed) saveDB(DB);
+  return changed;
+}
+
+// À appeler après création ou modification d'une charge fixe pour synchroniser le mois en cours.
+function syncFixedChargeNow(c) {
+  const current = monthKey();
+  const entry = DB.depenses.find((d) => d.recurringId === c.id && d.recurringMonth === current);
+  if (c.montant > 0) {
+    if (!c.genereJusqua) {
+      DB.depenses.push(makeFixedEntry(c, current));
+      c.genereJusqua = current;
+    } else if (entry) {
+      entry.montant = c.montant;
+      entry.categorie = c.nom;
+    }
+  } else {
+    if (entry) DB.depenses.splice(DB.depenses.indexOf(entry), 1);
+    c.genereJusqua = null;
+  }
+}
+
 /* ============================= NAVIGATION ============================= */
 
 const SCREENS = ["saisie", "bilan", "historique", "reglages"];
 const TITLES = { saisie: "Compta Lulu", bilan: "Bilan mensuel", historique: "Historique", reglages: "Réglages" };
 
+let currentScreen = "saisie";
+
 function showScreen(name) {
+  currentScreen = name;
   SCREENS.forEach((s) => {
     document.getElementById(`screen-${s}`).classList.toggle("hidden", s !== name);
   });
@@ -311,11 +393,13 @@ function nextEcheance(year, month) {
   return d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 }
 
-function renderBilan() {
-  document.getElementById("month-label").textContent = monthLabel(bilanYear, bilanMonth);
+function byDateAsc(a, b) {
+  return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+}
 
-  const prestas = DB.prestations.filter((p) => inMonth(p.date, bilanYear, bilanMonth));
-  const depenses = DB.depenses.filter((d) => inMonth(d.date, bilanYear, bilanMonth));
+function computeBilan(year, month) {
+  const prestas = DB.prestations.filter((p) => inMonth(p.date, year, month)).sort(byDateAsc);
+  const depenses = DB.depenses.filter((d) => inMonth(d.date, year, month)).sort(byDateAsc);
 
   const ca = roundCents(prestas.reduce((s, p) => s + p.montant, 0));
   const percu = roundCents(prestas.reduce((s, p) => s + p.montantPercu, 0));
@@ -328,41 +412,69 @@ function renderBilan() {
   const cotTotal = roundCents(cot1 + cot2 + cot3);
 
   const totalDepenses = roundCents(depenses.reduce((s, d) => s + d.montant, 0));
+  const depensesFixes = roundCents(depenses.filter((d) => d.recurringId).reduce((s, d) => s + d.montant, 0));
+  const autresDepenses = roundCents(totalDepenses - depensesFixes);
   const net = roundCents(percu - cotTotal - totalDepenses);
 
-  document.getElementById("stat-ca").textContent = fmtEUR(ca);
-  document.getElementById("stat-percu").textContent = fmtEUR(percu);
-  document.getElementById("stat-frais").textContent = fmtEUR(frais);
-
-  document.getElementById("label-cot1").textContent = `Cotisations sociales (${rates.cotisations}%)`;
-  document.getElementById("label-cot2").textContent = `Versement libératoire IR (${rates.irLiberatoire}%)`;
-  document.getElementById("label-cot3").textContent = `Formation professionnelle (${rates.formationPro}%)`;
-  document.getElementById("stat-cot1").textContent = fmtEUR(cot1);
-  document.getElementById("stat-cot2").textContent = fmtEUR(cot2);
-  document.getElementById("stat-cot3").textContent = fmtEUR(cot3);
-  document.getElementById("stat-cot-total").textContent = fmtEUR(cotTotal);
-  document.getElementById("stat-echeance").textContent =
-    `Échéance de paiement estimée : ${nextEcheance(bilanYear, bilanMonth)} (vérifiez la date exacte sur votre espace urssaf.fr)`;
-
-  document.getElementById("stat-depenses").textContent = fmtEUR(totalDepenses);
-  document.getElementById("stat-net").textContent = fmtEUR(net);
-
   const repartition = {};
-  prestas.forEach((p) => { repartition[p.mode] = (repartition[p.mode] || 0) + p.montant; });
+  prestas.forEach((p) => {
+    const r = repartition[p.mode] || (repartition[p.mode] = { count: 0, total: 0 });
+    r.count++;
+    r.total = roundCents(r.total + p.montant);
+  });
+
+  return {
+    monthLabel: monthLabel(year, month),
+    echeance: nextEcheance(year, month),
+    prestas, depenses, ca, percu, frais, rates,
+    cot1, cot2, cot3, cotTotal,
+    totalDepenses, depensesFixes, autresDepenses, net, repartition
+  };
+}
+
+function renderBilan() {
+  const b = computeBilan(bilanYear, bilanMonth);
+  document.getElementById("month-label").textContent = b.monthLabel;
+
+  document.getElementById("stat-ca").textContent = fmtEUR(b.ca);
+  document.getElementById("stat-percu").textContent = fmtEUR(b.percu);
+  document.getElementById("stat-frais").textContent = fmtEUR(b.frais);
+
+  document.getElementById("label-cot1").textContent = `Cotisations sociales (${b.rates.cotisations}%)`;
+  document.getElementById("label-cot2").textContent = `Versement libératoire IR (${b.rates.irLiberatoire}%)`;
+  document.getElementById("label-cot3").textContent = `Formation professionnelle (${b.rates.formationPro}%)`;
+  document.getElementById("stat-cot1").textContent = fmtEUR(b.cot1);
+  document.getElementById("stat-cot2").textContent = fmtEUR(b.cot2);
+  document.getElementById("stat-cot3").textContent = fmtEUR(b.cot3);
+  document.getElementById("stat-cot-total").textContent = fmtEUR(b.cotTotal);
+  document.getElementById("stat-echeance").textContent =
+    `Échéance de paiement estimée : ${b.echeance} (vérifiez la date exacte sur votre espace urssaf.fr)`;
+
+  document.getElementById("stat-depenses").textContent = fmtEUR(b.totalDepenses);
+  document.getElementById("stat-fixes").textContent = fmtEUR(b.depensesFixes);
+  document.getElementById("stat-net").textContent = fmtEUR(b.net);
+
   const repList = document.getElementById("repartition-list");
   repList.innerHTML = "";
-  const modes = Object.keys(repartition);
+  const modes = Object.keys(b.repartition);
   if (modes.length === 0) {
     repList.innerHTML = `<div class="empty-state">Aucune prestation ce mois-ci</div>`;
   } else {
     modes.forEach((mode) => {
       const row = document.createElement("div");
       row.className = "stat-row";
-      row.innerHTML = `<span>${escapeHtml(mode)}</span><span>${fmtEUR(repartition[mode])}</span>`;
+      row.innerHTML = `<span>${escapeHtml(mode)}</span><span>${fmtEUR(b.repartition[mode].total)}</span>`;
       repList.appendChild(row);
     });
   }
 }
+
+document.getElementById("btn-export-pdf").addEventListener("click", async () => {
+  const data = computeBilan(bilanYear, bilanMonth);
+  const bytes = buildBilanPdf(data, DB.settings.profil);
+  const slug = data.monthLabel.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(" ", "-").toLowerCase();
+  await deliverFile(new Blob([bytes], { type: "application/pdf" }), `bilan-${slug}.pdf`);
+});
 
 /* ============================= ECRAN HISTORIQUE ============================= */
 
@@ -417,7 +529,7 @@ function renderHistorique() {
       el.innerHTML = `
         <div class="entry-main">
           <div class="entry-title">${escapeHtml(item.categorie)}</div>
-          <div class="entry-sub">${item.note ? escapeHtml(item.note) : "Dépense"}</div>
+          <div class="entry-sub">${item.note ? escapeHtml(item.note) : item.recurringId ? "Charge mensuelle fixe" : "Dépense"}</div>
         </div>
         <div class="entry-amount negative">-${fmtEUR(item.montant)}</div>
       `;
@@ -447,7 +559,7 @@ function openEntryModal(item) {
     ` : `
       <label class="field-label">Catégorie</label>
       <select id="edit-cat">
-        ${DB.settings.categoriesDepenses.map((c) => `<option value="${escapeAttr(c)}" ${c === item.categorie ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
+        ${(DB.settings.categoriesDepenses.includes(item.categorie) ? DB.settings.categoriesDepenses : [item.categorie, ...DB.settings.categoriesDepenses]).map((c) => `<option value="${escapeAttr(c)}" ${c === item.categorie ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}
       </select>
       <label class="field-label">Montant (€)</label>
       <input type="number" id="edit-montant" step="0.01" value="${item.montant}" />
@@ -483,7 +595,10 @@ function openEntryModal(item) {
     // write back into DB arrays (item is a shallow copy via spread, so find and replace)
     const arr = isPresta ? DB.prestations : DB.depenses;
     const idx = arr.findIndex((x) => x.id === item.id);
-    if (idx !== -1) arr[idx] = { ...arr[idx], ...item };
+    if (idx !== -1) {
+      arr[idx] = { ...arr[idx], ...item };
+      delete arr[idx].kind;
+    }
     saveDB(DB);
     closeModal();
     renderHistorique();
@@ -510,6 +625,9 @@ function renderReglages() {
   document.getElementById("rate-formation").value = r.formationPro;
   document.getElementById("rate-total").textContent = (r.cotisations + r.irLiberatoire + r.formationPro).toFixed(2);
   document.getElementById("rate-sumup").value = DB.settings.sumupRate;
+  document.getElementById("profil-nom").value = DB.settings.profil.nom || "";
+  document.getElementById("profil-siret").value = DB.settings.profil.siret || "";
+  renderChargesFixes();
 
   const typesList = document.getElementById("types-list");
   typesList.innerHTML = "";
@@ -551,6 +669,68 @@ function renderReglages() {
     });
   });
 }
+
+function renderChargesFixes() {
+  const list = document.getElementById("fixed-list");
+  list.innerHTML = "";
+  DB.settings.chargesFixes.forEach((c) => {
+    const row = document.createElement("div");
+    row.className = "fixed-row";
+    row.innerHTML = `
+      <input type="text" class="fx-nom" value="${escapeAttr(c.nom)}" aria-label="Nom de la charge" />
+      <input type="number" class="fx-montant" value="${c.montant || ""}" placeholder="0.00" step="0.01" min="0" inputmode="decimal" aria-label="Montant par mois en euros" />
+      <button type="button" class="btn-danger-text">Suppr.</button>
+    `;
+    const nomInput = row.querySelector(".fx-nom");
+    const montantInput = row.querySelector(".fx-montant");
+    const save = () => {
+      c.nom = nomInput.value.trim() || c.nom;
+      c.montant = Math.max(0, roundCents(parseNum(montantInput.value)));
+      syncFixedChargeNow(c);
+      saveDB(DB);
+      updateFixedTotal();
+    };
+    nomInput.addEventListener("change", save);
+    montantInput.addEventListener("change", save);
+    row.querySelector("button").addEventListener("click", () => {
+      const current = monthKey();
+      DB.depenses = DB.depenses.filter((d) => !(d.recurringId === c.id && d.recurringMonth === current));
+      DB.settings.chargesFixes = DB.settings.chargesFixes.filter((x) => x.id !== c.id);
+      saveDB(DB);
+      renderChargesFixes();
+    });
+    list.appendChild(row);
+  });
+  updateFixedTotal();
+}
+
+function updateFixedTotal() {
+  const total = roundCents(DB.settings.chargesFixes.reduce((s, c) => s + (c.montant || 0), 0));
+  document.getElementById("fixed-total").textContent = fmtEUR(total);
+}
+
+document.getElementById("btn-add-fixed").addEventListener("click", () => {
+  const nom = document.getElementById("new-fixed-nom").value.trim();
+  const montant = Math.max(0, roundCents(parseNum(document.getElementById("new-fixed-montant").value)));
+  if (!nom) { showToast("Indiquez un nom"); return; }
+  const charge = { id: uid(), nom, montant, genereJusqua: null };
+  DB.settings.chargesFixes.push(charge);
+  syncFixedChargeNow(charge);
+  saveDB(DB);
+  document.getElementById("new-fixed-nom").value = "";
+  document.getElementById("new-fixed-montant").value = "";
+  renderChargesFixes();
+  showToast("Charge ajoutée ✓");
+});
+
+document.getElementById("btn-save-profil").addEventListener("click", () => {
+  DB.settings.profil = {
+    nom: document.getElementById("profil-nom").value.trim(),
+    siret: document.getElementById("profil-siret").value.trim()
+  };
+  saveDB(DB);
+  showToast("Informations enregistrées ✓");
+});
 
 document.getElementById("btn-save-rates").addEventListener("click", () => {
   DB.settings.urssaf = {
@@ -597,7 +777,7 @@ document.getElementById("btn-add-cat").addEventListener("click", () => {
 
 document.getElementById("btn-export").addEventListener("click", () => {
   const blob = new Blob([JSON.stringify(DB, null, 2)], { type: "application/json" });
-  downloadBlob(blob, `compta-lulu-sauvegarde-${todayISO()}.json`);
+  deliverFile(blob, `compta-lulu-sauvegarde-${todayISO()}.json`);
 });
 
 document.getElementById("btn-import").addEventListener("change", (e) => {
@@ -608,7 +788,8 @@ document.getElementById("btn-import").addEventListener("change", (e) => {
     try {
       const imported = JSON.parse(reader.result);
       if (!imported.prestations || !imported.depenses || !imported.settings) throw new Error("format invalide");
-      DB = imported;
+      DB = normalizeDB(imported);
+      ensureRecurringEntries();
       saveDB(DB);
       renderTypeGrid();
       renderCategorieSelect();
@@ -633,10 +814,29 @@ document.getElementById("btn-export-csv").addEventListener("click", () => {
     csv += `Dépense;${d.date};${csvSafe(d.categorie)};;-${d.montant.toFixed(2)};-${d.montant.toFixed(2)}\n`;
   });
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-  downloadBlob(blob, `compta-lulu-${monthLabel(bilanYear, bilanMonth).replace(" ", "-").toLowerCase()}.csv`);
+  deliverFile(blob, `compta-lulu-${monthLabel(bilanYear, bilanMonth).replace(" ", "-").toLowerCase()}.csv`);
 });
 
 function csvSafe(s) { return String(s).replace(/;/g, ","); }
+
+// Sur téléphone, le menu de partage natif (enregistrer dans Fichiers, envoyer par mail...) est plus fiable
+// qu'un téléchargement, qui peut enfermer l'utilisateur dans une visionneuse sans retour en mode application installée.
+async function deliverFile(blob, filename) {
+  const isTouchDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+  if (isTouchDevice && navigator.canShare && navigator.share) {
+    const file = new File([blob], filename, { type: blob.type });
+    if (navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: filename });
+        return;
+      } catch (err) {
+        if (err && err.name === "AbortError") return;
+      }
+    }
+  }
+  downloadBlob(blob, filename);
+}
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -663,11 +863,17 @@ function escapeAttr(str) {
 
 /* ============================= INIT ============================= */
 
+ensureRecurringEntries();
 document.getElementById("prestation-date").value = todayISO();
 document.getElementById("depense-date").value = todayISO();
 renderTypeGrid();
 renderCategorieSelect();
 showScreen("saisie");
+
+// L'appli installée peut rester ouverte en arrière-plan à cheval sur deux mois.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && ensureRecurringEntries()) showScreen(currentScreen);
+});
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

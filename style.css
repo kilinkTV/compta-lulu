@@ -352,6 +352,22 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 .add-row input { flex: 1; min-width: 90px; }
 .add-row button { margin-top: 0; white-space: nowrap; }
 
+.fixed-row {
+  display: grid;
+  grid-template-columns: 1fr 96px auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.fixed-row input { padding: 10px; font-size: 0.92rem; }
+.fixed-total {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 12px;
+  font-size: 0.92rem;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;

@@ -1,7 +1,10 @@
-const CACHE_NAME = "compta-lulu-v2";
+const CACHE_NAME = "compta-lulu-v3";
 const ASSETS = [
   "./",
   "./index.html",
+  "./app.js",
+  "./pdf.js",
+  "./style.css",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png"
