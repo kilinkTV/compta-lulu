@@ -302,9 +302,7 @@ document.getElementById("prestation-montant").addEventListener("input", updateSu
 document.querySelectorAll('[data-quickdate]').forEach((btn) => {
   btn.addEventListener("click", () => {
     const kind = btn.dataset.quickdate;
-    const d = new Date();
-    if (kind === "yesterday") d.setDate(d.getDate() - 1);
-    const iso = isoFromDate(d);
+    const iso = todayISO();
     if (kind === "today-dep") document.getElementById("depense-date").value = iso;
     else document.getElementById("prestation-date").value = iso;
   });
