@@ -12,10 +12,13 @@ function defaultDB() {
       urssaf: { cotisations: 23.20, irLiberatoire: 2.20, formationPro: 0.20 },
       sumupRate: 1.75,
       typesPrestations: [
-        { id: uid(), nom: "Première consultation / bilan", tarif: 70 },
-        { id: uid(), nom: "Consultation de suivi", tarif: 45 },
-        { id: uid(), nom: "Consultation en ligne", tarif: 40 },
-        { id: uid(), nom: "Bilan complet", tarif: 90 }
+        { id: uid(), nom: "Bilan diététique", tarif: 60 },
+        { id: uid(), nom: "Consultation de suivi", tarif: 50 },
+        { id: uid(), nom: "Tarif étudiant", tarif: 40 },
+        { id: uid(), nom: "Drainage corps entier", tarif: 90 },
+        { id: uid(), nom: "Drainage zone au choix", tarif: 50 },
+        { id: uid(), nom: "Cure drainage corps entier (5 séances)", tarif: 360 },
+        { id: uid(), nom: "Cure drainage zone au choix (5 séances)", tarif: 200 }
       ],
       categoriesDepenses: ["Fournitures", "Local / loyer", "Déplacements", "Formation", "Logiciels / abonnements", "Autre"]
     }
