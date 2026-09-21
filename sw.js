@@ -1,4 +1,4 @@
-const CACHE_NAME = "compta-lulu-v4";
+const CACHE_NAME = "compta-lulu-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -6,8 +6,14 @@ const ASSETS = [
   "./pdf.js",
   "./style.css",
   "./manifest.json",
+  "./fonts/fonts.css",
+  "./fonts/playfair.woff2",
+  "./fonts/playfair-italic.woff2",
+  "./fonts/lato-400.woff2",
+  "./fonts/lato-700.woff2",
   "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./icons/icon-512.png",
+  "./icons/apple-touch-icon.png"
 ];
 
 self.addEventListener("install", (event) => {

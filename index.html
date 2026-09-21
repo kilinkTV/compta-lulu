@@ -4,18 +4,20 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
 <title>Compta Lulu</title>
-<meta name="theme-color" content="#2e8b73" />
+<meta name="theme-color" content="#FDFAF6" />
 <link rel="manifest" href="manifest.json" />
-<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="icon" type="image/png" href="icons/icon-192.png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="apple-mobile-web-app-title" content="Compta Lulu" />
+<link rel="stylesheet" href="fonts/fonts.css" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
 <header class="topbar">
-  <h1 id="topbar-title">Compta Lulu</h1>
+  <h1 id="topbar-title">Compta <em>Lulu</em></h1>
 </header>
 
 <main id="app">
@@ -227,16 +229,16 @@
 
 <nav class="bottomnav">
   <button class="nav-btn active" data-screen="saisie">
-    <span class="nav-icon">＋</span><span>Saisie</span>
+    <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span><span>Saisie</span>
   </button>
   <button class="nav-btn" data-screen="bilan">
-    <span class="nav-icon">📊</span><span>Bilan</span>
+    <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V4M19 20v-7"/></svg></span><span>Bilan</span>
   </button>
   <button class="nav-btn" data-screen="historique">
-    <span class="nav-icon">🗂</span><span>Historique</span>
+    <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg></span><span>Historique</span>
   </button>
   <button class="nav-btn" data-screen="reglages">
-    <span class="nav-icon">⚙</span><span>Réglages</span>
+    <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M19 7h1M4 17h1M11 17h9"/><circle cx="16" cy="7" r="2.5"/><circle cx="8" cy="17" r="2.5"/></svg></span><span>Réglages</span>
   </button>
 </nav>
 

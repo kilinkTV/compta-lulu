@@ -134,11 +134,13 @@ function buildBilanPdf(d, profil) {
   const doc = createPdfDoc();
   const M = 42;
   const R = doc.W - M;
-  const TEAL = [0.18, 0.545, 0.451];
-  const DARK = [0.12, 0.16, 0.14];
-  const MUTED = [0.42, 0.47, 0.44];
-  const SOFT = [0.89, 0.949, 0.925];
-  const HEADBG = [0.95, 0.95, 0.94];
+  // Charte lucile-diet.fr : profond #5C3D2E, brun #8B6343, texte #3A2A1E, fonds #F0E6D8 / #F5EFE6
+  const PROFOND = [0.361, 0.239, 0.18];
+  const TEAL = [0.545, 0.388, 0.263];
+  const DARK = [0.227, 0.165, 0.118];
+  const MUTED = [0.545, 0.388, 0.263];
+  const SOFT = [0.941, 0.902, 0.847];
+  const HEADBG = [0.961, 0.937, 0.902];
   let y = 0;
 
   const newPage = () => {
@@ -190,11 +192,12 @@ function buildBilanPdf(d, profil) {
   };
 
   newPage();
-  doc.rect(0, 0, doc.W, 84, TEAL);
-  doc.text("Bilan mensuel", M, 38, { size: 20, bold: true, color: [1, 1, 1] });
-  doc.text(d.monthLabel, M, 60, { size: 13, color: [1, 1, 1] });
-  if (profil && profil.nom) doc.text(profil.nom, R, 38, { size: 11, bold: true, color: [1, 1, 1], align: "right" });
-  if (profil && profil.siret) doc.text("SIRET " + profil.siret, R, 54, { size: 9, color: [1, 1, 1], align: "right" });
+  const CREME = [0.992, 0.98, 0.965];
+  doc.rect(0, 0, doc.W, 84, PROFOND);
+  doc.text("Bilan mensuel", M, 38, { size: 20, bold: true, color: CREME });
+  doc.text(d.monthLabel, M, 60, { size: 13, color: CREME });
+  if (profil && profil.nom) doc.text(profil.nom, R, 38, { size: 11, bold: true, color: CREME, align: "right" });
+  if (profil && profil.siret) doc.text("SIRET " + profil.siret, R, 54, { size: 9, color: CREME, align: "right" });
   y = 106;
 
   section("Répartition par mode de paiement");

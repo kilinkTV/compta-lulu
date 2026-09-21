@@ -91,7 +91,8 @@ function uid() {
 
 function fmtEUR(n) {
   const v = Number(n) || 0;
-  return v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+  // Lato n'a pas l'espace fine insécable (U+202F) utilisée par fr-FR : on la remplace par une espace insécable classique.
+  return v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/ /g, " ") + " €";
 }
 
 function parseNum(v) {
@@ -197,7 +198,12 @@ function syncFixedChargeNow(c) {
 /* ============================= NAVIGATION ============================= */
 
 const SCREENS = ["saisie", "bilan", "historique", "reglages"];
-const TITLES = { saisie: "Compta Lulu", bilan: "Bilan mensuel", historique: "Historique", reglages: "Réglages" };
+const TITLES = {
+  saisie: "Compta <em>Lulu</em>",
+  bilan: "Bilan <em>mensuel</em>",
+  historique: "Mon <em>historique</em>",
+  reglages: "Mes <em>réglages</em>"
+};
 
 let currentScreen = "saisie";
 
@@ -209,7 +215,7 @@ function showScreen(name) {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.screen === name);
   });
-  document.getElementById("topbar-title").textContent = TITLES[name];
+  document.getElementById("topbar-title").innerHTML = TITLES[name];
   if (name === "bilan") renderBilan();
   if (name === "historique") renderHistorique();
   if (name === "reglages") renderReglages();
