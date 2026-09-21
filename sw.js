@@ -1,4 +1,4 @@
-const CACHE_NAME = "compta-lulu-v1";
+const CACHE_NAME = "compta-lulu-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -23,18 +23,17 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// Réseau d'abord : si elle a du réseau, elle voit toujours la dernière version
+// mise en ligne. Le cache ne sert que de secours hors-ligne.
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return response;
-        })
-        .catch(() => cached);
-    })
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
