@@ -1,4 +1,4 @@
-const CACHE_NAME = "compta-lulu-v5";
+const CACHE_NAME = "compta-lulu-v6";
 const ASSETS = [
   "./",
   "./index.html",
@@ -35,14 +35,18 @@ self.addEventListener("activate", (event) => {
 // Réseau d'abord : si elle a du réseau, elle voit toujours la dernière version
 // mise en ligne. Le cache ne sert que de secours hors-ligne.
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
+  const req = event.request;
+  if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
+  // Requête neuve (et non celle de navigation) pour forcer la revalidation de façon identique sur tous les navigateurs.
   event.respondWith(
-    fetch(event.request, { cache: "no-cache" })
+    fetch(new Request(req.url, { cache: "no-cache" }))
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+        }
         return response;
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => caches.match(req, { ignoreSearch: true }))
   );
 });

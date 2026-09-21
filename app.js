@@ -104,6 +104,8 @@ function normalizeDB(db) {
   s.chargesFixes.forEach((c) => {
     c.historique = arr(c.historique, []);
     c.montant = Number(c.montant) || 0;
+    // Une charge active sans historique compte depuis toujours à ce montant : on l'enregistre pour ne pas réécrire le passé à la prochaine modification.
+    if (!c.historique.length && c.montant > 0) c.historique = [{ depuis: "1970-01", montant: c.montant }];
   });
   s.profil = s.profil || def.settings.profil;
   s.tresorerie = { ...def.settings.tresorerie, ...(s.tresorerie || {}) };
