@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>Compta Lulu</title>
+<meta name="theme-color" content="#2e8b73" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Compta Lulu" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <h1 id="topbar-title">Compta Lulu</h1>
+</header>
+
+<main id="app">
+
+  <!-- ===================== ECRAN SAISIE ===================== -->
+  <section id="screen-saisie" class="screen">
+
+    <div class="segmented">
+      <button class="seg-btn active" data-entry-type="prestation">Prestation</button>
+      <button class="seg-btn" data-entry-type="depense">Dépense</button>
+    </div>
+
+    <!-- --- Formulaire prestation --- -->
+    <form id="form-prestation" class="card">
+      <label class="field-label">Date</label>
+      <div class="date-row">
+        <button type="button" class="chip" data-quickdate="today">Aujourd'hui</button>
+        <button type="button" class="chip" data-quickdate="yesterday">Hier</button>
+        <input type="date" id="prestation-date" required />
+      </div>
+
+      <label class="field-label">Type de prestation</label>
+      <div id="type-grid" class="tile-grid"></div>
+
+      <label class="field-label">Montant facturé (€)</label>
+      <input type="number" id="prestation-montant" inputmode="decimal" step="0.01" min="0" placeholder="0.00" required />
+
+      <label class="field-label">Mode de paiement</label>
+      <div class="tile-grid" id="mode-grid">
+        <button type="button" class="tile" data-mode="Espèces">Espèces</button>
+        <button type="button" class="tile" data-mode="Chèque">Chèque</button>
+        <button type="button" class="tile" data-mode="Virement">Virement</button>
+        <button type="button" class="tile" data-mode="CB">CB (SumUp)</button>
+      </div>
+
+      <div id="sumup-preview" class="preview-box hidden">
+        <div class="preview-row"><span>Commission SumUp estimée</span><strong id="preview-fee">0,00 €</strong></div>
+        <div class="preview-row"><span>Vous touchez réellement</span><strong id="preview-net">0,00 €</strong></div>
+      </div>
+
+      <label class="field-label">Note (optionnel)</label>
+      <input type="text" id="prestation-note" placeholder="Ex : Mme Martin" />
+
+      <button type="submit" class="btn-primary">Enregistrer la prestation</button>
+    </form>
+
+    <!-- --- Formulaire dépense --- -->
+    <form id="form-depense" class="card hidden">
+      <label class="field-label">Date</label>
+      <div class="date-row">
+        <button type="button" class="chip" data-quickdate="today-dep">Aujourd'hui</button>
+        <input type="date" id="depense-date" required />
+      </div>
+
+      <label class="field-label">Catégorie</label>
+      <select id="depense-categorie"></select>
+
+      <label class="field-label">Montant (€)</label>
+      <input type="number" id="depense-montant" inputmode="decimal" step="0.01" min="0" placeholder="0.00" required />
+
+      <label class="field-label">Note (optionnel)</label>
+      <input type="text" id="depense-note" placeholder="Ex : Fournitures cabinet" />
+
+      <button type="submit" class="btn-primary">Enregistrer la dépense</button>
+    </form>
+
+    <div id="toast" class="toast hidden"></div>
+  </section>
+
+  <!-- ===================== ECRAN BILAN ===================== -->
+  <section id="screen-bilan" class="screen hidden">
+    <div class="month-picker">
+      <button id="month-prev" class="icon-btn">‹</button>
+      <span id="month-label">—</span>
+      <button id="month-next" class="icon-btn">›</button>
+    </div>
+
+    <div class="card stat-card">
+      <div class="stat-row"><span>Chiffre d'affaires (à déclarer)</span><strong id="stat-ca">0,00 €</strong></div>
+      <div class="stat-row"><span>Total réellement perçu</span><strong id="stat-percu">0,00 €</strong></div>
+      <div class="stat-row muted"><span>dont commissions SumUp</span><span id="stat-frais">0,00 €</span></div>
+    </div>
+
+    <div class="card stat-card">
+      <div class="card-title">Cotisations URSSAF estimées</div>
+      <div class="stat-row"><span id="label-cot1">Cotisations</span><span id="stat-cot1">0,00 €</span></div>
+      <div class="stat-row"><span id="label-cot2">Versement libératoire IR</span><span id="stat-cot2">0,00 €</span></div>
+      <div class="stat-row"><span id="label-cot3">Formation professionnelle</span><span id="stat-cot3">0,00 €</span></div>
+      <div class="stat-row total"><span>Total à payer à l'URSSAF</span><strong id="stat-cot-total">0,00 €</strong></div>
+      <div class="hint" id="stat-echeance"></div>
+    </div>
+
+    <div class="card stat-card">
+      <div class="stat-row"><span>Total dépenses</span><span id="stat-depenses">0,00 €</span></div>
+      <div class="stat-row total"><span>Reste net réel (après URSSAF et dépenses)</span><strong id="stat-net">0,00 €</strong></div>
+    </div>
+
+    <div class="card stat-card" id="repartition-card">
+      <div class="card-title">Répartition par mode de paiement</div>
+      <div id="repartition-list"></div>
+    </div>
+  </section>
+
+  <!-- ===================== ECRAN HISTORIQUE ===================== -->
+  <section id="screen-historique" class="screen hidden">
+    <div class="month-picker">
+      <button id="hist-month-prev" class="icon-btn">‹</button>
+      <span id="hist-month-label">—</span>
+      <button id="hist-month-next" class="icon-btn">›</button>
+    </div>
+    <div id="historique-list"></div>
+  </section>
+
+  <!-- ===================== ECRAN REGLAGES ===================== -->
+  <section id="screen-reglages" class="screen hidden">
+
+    <div class="card">
+      <div class="card-title">Taux URSSAF (micro-BNC)</div>
+      <label class="field-label">Cotisations sociales (%)</label>
+      <input type="number" id="rate-cotisations" step="0.01" min="0" />
+      <label class="field-label">Versement libératoire IR (%)</label>
+      <input type="number" id="rate-ir" step="0.01" min="0" />
+      <label class="field-label">Formation professionnelle (%)</label>
+      <input type="number" id="rate-formation" step="0.01" min="0" />
+      <div class="hint">Total actuel : <strong id="rate-total">0</strong> % — vérifiez ces taux chaque année sur urssaf.fr</div>
+      <button type="button" id="btn-save-rates" class="btn-secondary">Enregistrer les taux</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Commission SumUp</div>
+      <label class="field-label">Taux de commission CB (%)</label>
+      <input type="number" id="rate-sumup" step="0.01" min="0" />
+      <button type="button" id="btn-save-sumup" class="btn-secondary">Enregistrer</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Types de prestations</div>
+      <div id="types-list"></div>
+      <div class="add-row">
+        <input type="text" id="new-type-nom" placeholder="Nom (ex: Suivi)" />
+        <input type="number" id="new-type-tarif" placeholder="Tarif €" step="0.01" min="0" />
+        <button type="button" id="btn-add-type" class="btn-secondary">Ajouter</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Catégories de dépenses</div>
+      <div id="categories-list"></div>
+      <div class="add-row">
+        <input type="text" id="new-cat-nom" placeholder="Ex : Fournitures" />
+        <button type="button" id="btn-add-cat" class="btn-secondary">Ajouter</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Sauvegarde des données</div>
+      <p class="hint">Les données sont stockées uniquement sur ce téléphone. Faites une sauvegarde régulière pour ne rien perdre.</p>
+      <button type="button" id="btn-export" class="btn-secondary">Exporter toutes les données (JSON)</button>
+      <button type="button" id="btn-export-csv" class="btn-secondary">Exporter le mois affiché (CSV)</button>
+      <label class="btn-secondary file-label">
+        Importer une sauvegarde (JSON)
+        <input type="file" id="btn-import" accept="application/json" hidden />
+      </label>
+    </div>
+
+  </section>
+
+</main>
+
+<nav class="bottomnav">
+  <button class="nav-btn active" data-screen="saisie">
+    <span class="nav-icon">＋</span><span>Saisie</span>
+  </button>
+  <button class="nav-btn" data-screen="bilan">
+    <span class="nav-icon">📊</span><span>Bilan</span>
+  </button>
+  <button class="nav-btn" data-screen="historique">
+    <span class="nav-icon">🗂</span><span>Historique</span>
+  </button>
+  <button class="nav-btn" data-screen="reglages">
+    <span class="nav-icon">⚙</span><span>Réglages</span>
+  </button>
+</nav>
+
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal-box" id="modal-box"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

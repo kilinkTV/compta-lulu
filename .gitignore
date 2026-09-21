@@ -1,0 +1,9 @@
+.DS_Store
+Thumbs.db
+
+# Documents personnels de référence, à ne jamais publier
+urssaf lulu.jpeg
+google drive lulu.jpeg
+
+# Config locale de dev, pas utile au déploiement
+.claude/
