@@ -12,55 +12,66 @@ function corsHeaders() {
 
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders() });
+    // Toujours répondre avec les en-têtes CORS, même en cas d'erreur inattendue : sinon le navigateur
+    // masque la vraie réponse et le client ne voit qu'un "Failed to fetch" incompréhensible.
+    try {
+      return await route(request, env);
+    } catch (e) {
+      console.error("unhandled error", e);
+      return new Response(`Erreur serveur : ${e.message || e}`, { status: 500, headers: corsHeaders() });
     }
-
-    if (request.method === "POST" && url.pathname === "/subscribe") {
-      const sub = await request.json().catch(() => null);
-      if (!sub || !sub.endpoint || !sub.keys) {
-        return new Response("Abonnement invalide", { status: 400, headers: corsHeaders() });
-      }
-      await env.SUBS.put(sub.endpoint, JSON.stringify(sub));
-      return new Response("ok", { headers: corsHeaders() });
-    }
-
-    if (request.method === "POST" && url.pathname === "/unsubscribe") {
-      const body = await request.json().catch(() => null);
-      if (body && body.endpoint) await env.SUBS.delete(body.endpoint);
-      return new Response("ok", { headers: corsHeaders() });
-    }
-
-    if (request.method === "POST" && url.pathname === "/auth/request-link") {
-      return handleRequestLink(request, env);
-    }
-
-    if (request.method === "POST" && url.pathname === "/auth/verify") {
-      return handleVerify(request, env);
-    }
-
-    if (request.method === "POST" && url.pathname === "/sync") {
-      return handleSync(request, env);
-    }
-
-    // Déclenchement manuel pour vérifier l'envoi sans attendre le 28 : /send-test?key=...
-    if (request.method === "GET" && url.pathname === "/send-test") {
-      if (url.searchParams.get("key") !== env.TEST_KEY) {
-        return new Response("interdit", { status: 403, headers: corsHeaders() });
-      }
-      const sent = await sendReminders(env);
-      return new Response(`envoyé à ${sent} abonnement(s)`, { headers: corsHeaders() });
-    }
-
-    return new Response("Compta Lulu — service de rappel", { status: 200, headers: corsHeaders() });
   },
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(sendReminders(env));
   }
 };
+
+async function route(request, env) {
+  const url = new URL(request.url);
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders() });
+  }
+
+  if (request.method === "POST" && url.pathname === "/subscribe") {
+    const sub = await request.json().catch(() => null);
+    if (!sub || !sub.endpoint || !sub.keys) {
+      return new Response("Abonnement invalide", { status: 400, headers: corsHeaders() });
+    }
+    await env.SUBS.put(sub.endpoint, JSON.stringify(sub));
+    return new Response("ok", { headers: corsHeaders() });
+  }
+
+  if (request.method === "POST" && url.pathname === "/unsubscribe") {
+    const body = await request.json().catch(() => null);
+    if (body && body.endpoint) await env.SUBS.delete(body.endpoint);
+    return new Response("ok", { headers: corsHeaders() });
+  }
+
+  if (request.method === "POST" && url.pathname === "/auth/request-link") {
+    return handleRequestLink(request, env);
+  }
+
+  if (request.method === "POST" && url.pathname === "/auth/verify") {
+    return handleVerify(request, env);
+  }
+
+  if (request.method === "POST" && url.pathname === "/sync") {
+    return handleSync(request, env);
+  }
+
+  // Déclenchement manuel pour vérifier l'envoi sans attendre le 28 : /send-test?key=...
+  if (request.method === "GET" && url.pathname === "/send-test") {
+    if (url.searchParams.get("key") !== env.TEST_KEY) {
+      return new Response("interdit", { status: 403, headers: corsHeaders() });
+    }
+    const sent = await sendReminders(env);
+    return new Response(`envoyé à ${sent} abonnement(s)`, { headers: corsHeaders() });
+  }
+
+  return new Response("Compta Lulu — service de rappel", { status: 200, headers: corsHeaders() });
+}
 
 /* ---- Authentification par lien magique + synchronisation ---- */
 
@@ -112,8 +123,9 @@ async function sendMagicLinkEmail(env, email, link) {
     })
   });
   if (!res.ok) {
-    console.error("resend error", res.status, await res.text());
-    throw new Error("Envoi d'email impossible");
+    const detail = await res.text().catch(() => "");
+    console.error("resend error", res.status, detail);
+    throw new Error(`Resend a refusé l'envoi (${res.status}) : ${detail}`);
   }
 }
 
