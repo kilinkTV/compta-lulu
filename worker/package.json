@@ -8,7 +8,8 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@block65/webcrypto-web-push": "^2.0.0"
+    "@block65/webcrypto-web-push": "^2.0.0",
+    "worker-mailer": "^1.2.1"
   },
   "devDependencies": {
     "wrangler": "^3"

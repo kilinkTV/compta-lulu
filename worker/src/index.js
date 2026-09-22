@@ -1,4 +1,5 @@
 import { buildPushPayload } from "@block65/webcrypto-web-push";
+import { WorkerMailer } from "worker-mailer";
 
 const CORS_ORIGIN = "https://kilinktv.github.io";
 
@@ -104,15 +105,21 @@ function randomToken() {
 }
 
 async function sendMagicLinkEmail(env, email, link) {
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: env.MAIL_FROM || "Compta Lulu <onboarding@resend.dev>",
-      to: [email],
+  const mailer = await WorkerMailer.connect({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    startTls: true,
+    authType: "login",
+    credentials: {
+      username: env.GMAIL_USER,
+      password: env.GMAIL_APP_PASSWORD
+    }
+  });
+  try {
+    await mailer.send({
+      from: { name: "Compta Lulu", email: env.GMAIL_USER },
+      to: email,
       subject: "Connexion à Compta Lulu",
       html: `
         <p>Bonjour,</p>
@@ -120,12 +127,10 @@ async function sendMagicLinkEmail(env, email, link) {
         <p><a href="${link}">Se connecter à Compta Lulu</a></p>
         <p>Si vous n'avez rien demandé, ignorez cet email.</p>
       `
-    })
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    console.error("resend error", res.status, detail);
-    throw new Error(`Resend a refusé l'envoi (${res.status}) : ${detail}`);
+    });
+  } catch (e) {
+    console.error("gmail smtp error", e);
+    throw new Error(`Envoi par Gmail refusé : ${e.message || e}`);
   }
 }
 
