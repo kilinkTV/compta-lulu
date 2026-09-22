@@ -33,20 +33,21 @@ sert de référence si on doit le redéployer ailleurs ou le faire évoluer.
    ```
    npx wrangler secret put VAPID_PRIVATE_KEY
    npx wrangler secret put TEST_KEY
-   npx wrangler secret put RESEND_API_KEY
+   npx wrangler secret put GMAIL_APP_PASSWORD
    ```
    - `VAPID_PRIVATE_KEY` : générée avec la clé publique (déjà dans
      `wrangler.toml` et `app.js`).
    - `TEST_KEY` : mot de passe choisi pour déclencher un envoi de rappel de
      test manuellement.
-   - `RESEND_API_KEY` : clé API d'un compte [resend.com](https://resend.com)
-     (gratuit), utilisée pour envoyer les emails de connexion.
-     Dashboard Resend → API Keys → Create API Key.
-   - `MAIL_FROM` (facultatif, dans `[vars]` de `wrangler.toml`, pas un
-     secret) : adresse d'expéditeur si un domaine est vérifié sur Resend,
-     par exemple `Compta Lulu <compta@lucile-diet.fr>`. Sans ça, les emails
-     partent de l'adresse par défaut de Resend (`onboarding@resend.dev`),
-     ce qui fonctionne mais fait moins pro.
+   - `GMAIL_APP_PASSWORD` : mot de passe d'application du compte Gmail
+     défini dans `GMAIL_USER` (`[vars]` de `wrangler.toml`). Nécessite la
+     validation en 2 étapes activée sur ce compte, puis
+     myaccount.google.com/apppasswords → créer un mot de passe d'application.
+     Les emails de connexion sont envoyés via le SMTP de ce compte Gmail
+     (bibliothèque `worker-mailer`), pas de domaine à vérifier. Limite ~500
+     emails/jour et pas fait pour un envoi automatisé à grande échelle : si
+     l'appli grandit un jour, basculer sur un domaine vérifié (Resend ou
+     équivalent).
 4. Déployer :
    ```
    npx wrangler deploy
