@@ -117,7 +117,10 @@ function normalizeDB(db) {
   s.tresorerie = { ...def.settings.tresorerie, ...(s.tresorerie || {}) };
   s.tresorerie.moisCoussin = s.tresorerie.moisCoussin ?? 3;
   db.bilansValides = db.bilansValides && typeof db.bilansValides === "object" ? db.bilansValides : {};
-  db.updatedAt = db.updatedAt || null;
+  // Des données créées avant l'ajout de la synchro n'ont jamais eu d'horodatage : sans ça, deux appareils
+  // avec de vraies données mais un updatedAt vide se retrouvent à égalité et aucun ne récupère l'autre.
+  // On horodate donc à maintenant dès qu'il y a de vraies données, pour que la comparaison fonctionne dès la prochaine synchro.
+  if (!db.updatedAt) db.updatedAt = (db.prestations.length || db.depenses.length) ? new Date().toISOString() : null;
   migrateDB(db);
   return db;
 }
