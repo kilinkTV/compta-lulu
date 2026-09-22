@@ -343,6 +343,10 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
 
 let toastTimer = null;
 function showToast(msg) {
+  // Ferme le clavier virtuel : sur téléphone, un champ encore focus peut cacher le message en dessous.
+  if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) {
+    document.activeElement.blur();
+  }
   const t = document.getElementById("toast");
   t.textContent = msg;
   t.classList.remove("hidden");
@@ -1593,22 +1597,31 @@ function updateSyncStatus() {
 }
 
 document.getElementById("btn-sync-request").addEventListener("click", async () => {
-  const email = document.getElementById("sync-email-input").value.trim();
+  const emailInput = document.getElementById("sync-email-input");
+  const email = emailInput.value.trim();
   if (!email || !email.includes("@")) { showToast("Adresse email invalide"); return; }
   const btn = document.getElementById("btn-sync-request");
   if (btn.disabled) return; // évite un double envoi si on retape pendant la requête
+  emailInput.blur(); // ferme le clavier : sur iPhone la confirmation peut rester cachée dessous sinon
   const label = btn.textContent;
   btn.disabled = true;
   btn.textContent = "Envoi en cours…";
+  let confirmText;
   try {
     const result = await requestMagicLink(email);
+    confirmText = result === "wait" ? "Déjà envoyé ✓" : "Envoyé ✓";
     showToast(result === "wait" ? "Lien déjà envoyé, vérifiez vos mails (patientez 1 min avant d'en redemander un)" : "Lien de connexion envoyé ✓ — vérifiez vos mails");
   } catch (e) {
     console.error(e);
+    confirmText = "Échec de l'envoi";
     showToast("Envoi impossible : vérifiez votre connexion");
   }
-  btn.disabled = false;
-  btn.textContent = label;
+  // Confirmation affichée directement sur le bouton : reste visible même si le toast est masqué (clavier, etc.).
+  btn.textContent = confirmText;
+  setTimeout(() => {
+    btn.textContent = label;
+    btn.disabled = false;
+  }, 2500);
 });
 
 document.getElementById("btn-sync-disconnect").addEventListener("click", () => {
