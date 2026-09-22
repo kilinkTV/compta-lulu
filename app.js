@@ -31,7 +31,8 @@ function defaultDB() {
       chargesFixes: defaultChargesFixes(),
       profil: { nom: "Lucile Le Pocreau", siret: "" },
       tresorerie: { montant: null, date: null, mode: "coussin", moisCoussin: 3, montantLibre: null }
-    }
+    },
+    bilansValides: {}
   };
 }
 
@@ -110,6 +111,7 @@ function normalizeDB(db) {
   s.profil = s.profil || def.settings.profil;
   s.tresorerie = { ...def.settings.tresorerie, ...(s.tresorerie || {}) };
   s.tresorerie.moisCoussin = s.tresorerie.moisCoussin ?? 3;
+  db.bilansValides = db.bilansValides && typeof db.bilansValides === "object" ? db.bilansValides : {};
   migrateDB(db);
   return db;
 }
@@ -250,6 +252,10 @@ function nextMonthKey(key) {
   return `${y}-${String(m).padStart(2, "0")}`;
 }
 
+function ymKey(year, month) {
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+
 /* ============================= CHARGES FIXES ============================= */
 
 // Une charge fixe compte pour TOUS les mois (passés, en cours, à venir). Son montant est celui de l'historique :
@@ -313,6 +319,7 @@ function showScreen(name) {
     btn.classList.toggle("active", btn.dataset.screen === name);
   });
   document.getElementById("topbar-title").innerHTML = TITLES[name];
+  if (name === "saisie") renderValidationBanner();
   if (name === "bilan") renderBilan();
   if (name === "historique") renderHistorique();
   if (name === "reglages") renderReglages();
@@ -544,6 +551,8 @@ function computeTresorerie(now = new Date()) {
   const urssafMois = [];
   for (let k = -3; k <= 0; k++) {
     const m = shiftMonth(now.getFullYear(), now.getMonth(), k);
+    // Un mois déjà validé a son URSSAF enregistré comme vraie dépense à son échéance : ne pas la recompter en estimation.
+    if (DB.bilansValides[ymKey(m.year, m.month)]) continue;
     if (echeanceDate(m.year, m.month) > today) {
       const cot = computeBilan(m.year, m.month).cotTotal;
       urssaf += cot;
@@ -557,7 +566,8 @@ function computeTresorerie(now = new Date()) {
   for (let k = -3; k <= -1; k++) {
     const m = shiftMonth(now.getFullYear(), now.getMonth(), k);
     const b = computeBilan(m.year, m.month);
-    const ponctuelles = b.depenses.filter((d) => !d.recurringId);
+    // Le versement URSSAF validé est une grosse dépense ponctuelle non représentative des dépenses courantes : on l'exclut de la moyenne.
+    const ponctuelles = b.depenses.filter((d) => !d.recurringId && !d.genereAuto);
     if (b.prestas.length || ponctuelles.length) {
       sommePonctuelles += ponctuelles.reduce((s, d) => s + d.montant, 0);
       moisAvecActivite++;
@@ -702,6 +712,7 @@ function renderBilan() {
   document.getElementById("stat-fixes").textContent = fmtEUR(b.depensesFixes);
   document.getElementById("stat-net").textContent = fmtEUR(b.net);
   renderTresorerieCard();
+  renderValidationCard();
 
   const repList = document.getElementById("repartition-list");
   repList.innerHTML = "";
@@ -723,6 +734,112 @@ document.getElementById("btn-export-pdf").addEventListener("click", async () => 
   const bytes = buildBilanPdf(data, DB.settings.profil);
   const slug = data.monthLabel.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(" ", "-").toLowerCase();
   await deliverFile(new Blob([bytes], { type: "application/pdf" }), `bilan-${slug}.pdf`);
+});
+
+/* ============================= VALIDATION DU BILAN ============================= */
+
+// Valider un mois transforme son estimation URSSAF en vraie dépense, datée de l'échéance réelle (2 mois plus tard).
+// Le montant est figé au moment de la validation : modifier des entrées du mois ensuite ne le change plus.
+function validerBilan(year, month) {
+  const key = ymKey(year, month);
+  if (DB.bilansValides[key]) return DB.bilansValides[key];
+  const bilan = computeBilan(year, month);
+  const due = echeanceDate(year, month);
+  const depense = {
+    id: uid(),
+    date: isoFromDate(due),
+    categorie: "URSSAF",
+    montant: bilan.cotTotal,
+    note: `Cotisations URSSAF – ${bilan.monthLabel}`,
+    genereAuto: true
+  };
+  DB.depenses.push(depense);
+  DB.bilansValides[key] = { valideLe: todayISO(), urssaf: bilan.cotTotal, depenseId: depense.id };
+  saveDB(DB);
+  return DB.bilansValides[key];
+}
+
+function annulerValidation(year, month) {
+  const key = ymKey(year, month);
+  const v = DB.bilansValides[key];
+  if (!v) return;
+  DB.depenses = DB.depenses.filter((d) => d.id !== v.depenseId);
+  delete DB.bilansValides[key];
+  saveDB(DB);
+}
+
+function renderValidationCard() {
+  const card = document.getElementById("validation-card");
+  const nowD = new Date();
+  const isFuture = bilanYear > nowD.getFullYear() || (bilanYear === nowD.getFullYear() && bilanMonth > nowD.getMonth());
+  if (isFuture) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+
+  const key = ymKey(bilanYear, bilanMonth);
+  const v = DB.bilansValides[key];
+  const body = document.getElementById("validation-body");
+  const btnValider = document.getElementById("btn-valider-bilan");
+  const btnAnnuler = document.getElementById("btn-annuler-validation");
+
+  if (v) {
+    body.innerHTML = `<div class="hint" style="margin-top:0">Bilan validé le ${v.valideLe.split("-").reverse().join("/")}. Cotisation URSSAF de <strong>${fmtEUR(v.urssaf)}</strong> enregistrée comme dépense à son échéance du ${isoFromDate(echeanceDate(bilanYear, bilanMonth)).split("-").reverse().join("/")}.</div>`;
+    btnValider.classList.add("hidden");
+    btnAnnuler.classList.remove("hidden");
+  } else {
+    const cot = computeBilan(bilanYear, bilanMonth).cotTotal;
+    body.innerHTML = `<div class="hint" style="margin-top:0">Vérifiez les recettes, dépenses et le montant URSSAF ci-dessus. Une fois validé, l'URSSAF de <strong>${fmtEUR(cot)}</strong> sera enregistré comme dépense à son échéance (${nextEcheance(bilanYear, bilanMonth)}) et ne changera plus.</div>`;
+    btnValider.classList.remove("hidden");
+    btnAnnuler.classList.add("hidden");
+  }
+}
+
+document.getElementById("btn-valider-bilan").addEventListener("click", () => {
+  if (!confirm(`Valider le bilan de ${monthLabel(bilanYear, bilanMonth)} ? La cotisation URSSAF sera enregistrée comme dépense à son échéance et ne changera plus, même en modifiant des entrées de ce mois ensuite.`)) return;
+  validerBilan(bilanYear, bilanMonth);
+  renderBilan();
+  renderValidationBanner();
+  showToast("Bilan validé ✓");
+  if (confirm("Exporter le bilan en PDF maintenant ?")) document.getElementById("btn-export-pdf").click();
+});
+
+document.getElementById("btn-annuler-validation").addEventListener("click", () => {
+  if (!confirm("Annuler la validation de ce mois ? La dépense URSSAF associée sera supprimée.")) return;
+  annulerValidation(bilanYear, bilanMonth);
+  renderBilan();
+  renderValidationBanner();
+  showToast("Validation annulée");
+});
+
+// Mois en attente de validation : le mois précédent (dès qu'il a de l'activité), et le mois en cours à partir du 28.
+function moisAValiderEnAttente() {
+  const nowD = new Date();
+  const candidates = [];
+  if (nowD.getDate() >= 28) candidates.push({ year: nowD.getFullYear(), month: nowD.getMonth() });
+  candidates.push(shiftMonth(nowD.getFullYear(), nowD.getMonth(), -1));
+  for (const c of candidates) {
+    if (DB.bilansValides[ymKey(c.year, c.month)]) continue;
+    const b = computeBilan(c.year, c.month);
+    if (b.prestas.length || b.depenses.length) return c;
+  }
+  return null;
+}
+
+function renderValidationBanner() {
+  const banner = document.getElementById("validation-banner");
+  const pending = moisAValiderEnAttente();
+  if (!pending) { banner.classList.add("hidden"); return; }
+  document.getElementById("validation-banner-text").textContent =
+    `Pensez à valider le bilan de ${monthLabel(pending.year, pending.month)} (recettes, dépenses, URSSAF) puis à l'exporter en PDF.`;
+  banner.dataset.year = pending.year;
+  banner.dataset.month = pending.month;
+  banner.classList.remove("hidden");
+}
+
+document.getElementById("btn-validation-banner-go").addEventListener("click", () => {
+  const banner = document.getElementById("validation-banner");
+  bilanYear = Number(banner.dataset.year);
+  bilanMonth = Number(banner.dataset.month);
+  showScreen("bilan");
 });
 
 /* ============================= ECRAN HISTORIQUE ============================= */
@@ -871,6 +988,10 @@ function openEntryModal(item) {
     const arr = isPresta ? DB.prestations : DB.depenses;
     const idx = arr.findIndex((x) => x.id === item.id);
     if (idx !== -1) arr.splice(idx, 1);
+    if (!isPresta) {
+      const key = Object.keys(DB.bilansValides).find((k) => DB.bilansValides[k].depenseId === item.id);
+      if (key) delete DB.bilansValides[key];
+    }
     saveDB(DB);
     closeModal();
     renderHistorique();
@@ -892,6 +1013,7 @@ function renderReglages() {
   renderChargesFixes();
   renderTresorerieSettings();
   renderSnapshots();
+  renderNotifCard();
 
   const typesList = document.getElementById("types-list");
   typesList.innerHTML = "";
@@ -1227,6 +1349,94 @@ function downloadBlob(blob, filename) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+/* ============================= NOTIFICATIONS PUSH ============================= */
+
+// Clé publique VAPID : sans danger à exposer, elle sert uniquement à vérifier l'origine des envois.
+const PUSH_VAPID_PUBLIC_KEY = "BK7rL1-jrxHs0WjyjSmlfuj-xWf0ezc_oURak_srCxLXCvzWipddZZRDUw28axgxZ4Shya8tY46N4oHydaGtLU4";
+// Renseigné une fois le petit service de rappel déployé (voir worker/README.md).
+const PUSH_SERVER_URL = "";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+function pushSupported() {
+  return PUSH_SERVER_URL && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+}
+
+async function renderNotifCard() {
+  const status = document.getElementById("notif-status");
+  const btn = document.getElementById("btn-notif-toggle");
+  if (!pushSupported()) {
+    status.textContent = !PUSH_SERVER_URL
+      ? "Bientôt disponible : le service de rappel n'est pas encore activé."
+      : "Non disponible sur ce navigateur. Sur iPhone, ajoutez d'abord l'appli à l'écran d'accueil (iOS 16.4+).";
+    btn.classList.add("hidden");
+    return;
+  }
+  btn.classList.remove("hidden");
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      status.textContent = "Rappels activés ✓";
+      btn.textContent = "Désactiver les rappels";
+      btn.onclick = () => unsubscribePush(sub);
+    } else {
+      status.textContent = Notification.permission === "denied"
+        ? "Notifications bloquées : autorisez-les dans les réglages de l'appareil."
+        : "Rappels désactivés.";
+      btn.textContent = "Activer les rappels";
+      btn.onclick = subscribePush;
+    }
+  } catch (e) {
+    console.error(e);
+    status.textContent = "Impossible de vérifier l'état des notifications.";
+  }
+}
+
+async function subscribePush() {
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { showToast("Autorisation refusée"); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(PUSH_VAPID_PUBLIC_KEY)
+    });
+    await fetch(`${PUSH_SERVER_URL}/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sub)
+    });
+    showToast("Rappels activés ✓");
+  } catch (e) {
+    console.error(e);
+    showToast("Activation impossible");
+  }
+  renderNotifCard();
+}
+
+async function unsubscribePush(sub) {
+  try {
+    await fetch(`${PUSH_SERVER_URL}/unsubscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: sub.endpoint })
+    });
+    await sub.unsubscribe();
+    showToast("Rappels désactivés");
+  } catch (e) {
+    console.error(e);
+  }
+  renderNotifCard();
 }
 
 /* ============================= HELPERS ============================= */

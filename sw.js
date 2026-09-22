@@ -1,4 +1,4 @@
-const CACHE_NAME = "compta-lulu-v7";
+const CACHE_NAME = "compta-lulu-v8";
 const ASSETS = [
   "./",
   "./index.html",
@@ -48,5 +48,32 @@ self.addEventListener("fetch", (event) => {
         return response;
       })
       .catch(() => caches.match(req, { ignoreSearch: true }))
+  );
+});
+
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) {}
+  const title = data.title || "Compta Lulu";
+  const body = data.body || "";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: "./icons/icon-192.png",
+      badge: "./icons/icon-192.png",
+      data: { url: "./" }
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ("focus" in c) return c.focus();
+      }
+      if (clients.openWindow) return clients.openWindow(event.notification.data && event.notification.data.url || "./");
+    })
   );
 });

@@ -1,0 +1,18 @@
+name = "compta-lulu-push"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# Cron : le 28 de chaque mois à 8h UTC (~10h en France, heure d'été)
+[triggers]
+crons = ["0 8 28 * *"]
+
+[[kv_namespaces]]
+binding = "SUBS"
+id = "REPLACE_AFTER_KV_CREATE"
+
+[vars]
+VAPID_SUBJECT = "mailto:benjmug@gmail.com"
+VAPID_PUBLIC_KEY = "BK7rL1-jrxHs0WjyjSmlfuj-xWf0ezc_oURak_srCxLXCvzWipddZZRDUw28axgxZ4Shya8tY46N4oHydaGtLU4"
+
+# VAPID_PRIVATE_KEY et TEST_KEY sont des secrets : ne jamais les mettre ici.
+# Ils se règlent avec `wrangler secret put VAPID_PRIVATE_KEY` et `wrangler secret put TEST_KEY`.

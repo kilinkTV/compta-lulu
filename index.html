@@ -31,6 +31,12 @@
   <!-- ===================== ECRAN SAISIE ===================== -->
   <section id="screen-saisie" class="screen">
 
+    <div id="validation-banner" class="card hidden">
+      <div class="card-title">Bilan à valider</div>
+      <p class="hint" id="validation-banner-text" style="margin-top:0"></p>
+      <button type="button" id="btn-validation-banner-go" class="btn-secondary">Voir le bilan</button>
+    </div>
+
     <div class="segmented">
       <button class="seg-btn active" data-entry-type="prestation">Prestation</button>
       <button class="seg-btn" data-entry-type="depense">Dépense</button>
@@ -135,6 +141,13 @@
       <button type="button" id="btn-update-tresorerie" class="btn-secondary">Mettre à jour ma trésorerie</button>
     </div>
 
+    <div class="card stat-card hidden" id="validation-card">
+      <div class="card-title">Validation du mois</div>
+      <div id="validation-body"></div>
+      <button type="button" id="btn-valider-bilan" class="btn-primary hidden">Valider ce bilan</button>
+      <button type="button" id="btn-annuler-validation" class="btn-danger-text hidden" style="width:100%; margin-top:10px;">Annuler la validation</button>
+    </div>
+
     <button type="button" id="btn-export-pdf" class="btn-primary">Exporter le bilan en PDF</button>
   </section>
 
@@ -233,6 +246,13 @@
       <label class="field-label">SIRET (optionnel)</label>
       <input type="text" id="profil-siret" inputmode="numeric" />
       <button type="button" id="btn-save-profil" class="btn-secondary">Enregistrer</button>
+    </div>
+
+    <div class="card" id="notif-card">
+      <div class="card-title">Rappel de fin de mois</div>
+      <p class="hint" style="margin-top:0">Recevez une notification vers le 28 de chaque mois pour valider vos recettes, dépenses et l'URSSAF. Sur iPhone : ajoutez d'abord l'appli à l'écran d'accueil, ouvrez-la depuis son icône, puis activez ici.</p>
+      <div class="hint" id="notif-status" style="margin-top:0"></div>
+      <button type="button" id="btn-notif-toggle" class="btn-secondary">Activer les rappels</button>
     </div>
 
     <div class="card" id="snapshots-card">
