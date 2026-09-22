@@ -79,12 +79,13 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
-function isAllowedEmail(env, email) {
-  const allowed = String(env.ALLOWED_EMAILS || "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-  return allowed.includes(email);
+// Compteur simple (pas atomique, suffisant pour dissuader un abus grossier de ce service à faible trafic).
+async function checkRateLimit(env, key, max, ttlSeconds) {
+  const raw = await env.MAGICLINKS.get(key);
+  const count = raw ? parseInt(raw, 10) : 0;
+  if (count >= max) return false;
+  await env.MAGICLINKS.put(key, String(count + 1), { expirationTtl: ttlSeconds });
+  return true;
 }
 
 function randomToken() {
@@ -120,8 +121,12 @@ async function handleRequestLink(request, env) {
   const body = await request.json().catch(() => null);
   const email = normalizeEmail(body && body.email);
   if (!email || !email.includes("@")) return text("Email invalide", 400);
-  if (!isAllowedEmail(env, email)) return text("ok"); // ne pas révéler si l'email est autorisé ou non
 
+  // Anti-abus : ce service n'est pas destiné à un usage public, mais son URL pourrait être découverte.
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (!(await checkRateLimit(env, `rateip:${ip}`, 5, 3600))) {
+    return text("Trop de demandes, réessayez plus tard", 429);
+  }
   const rateKey = `rate:${email}`;
   if (await env.MAGICLINKS.get(rateKey)) return text("ok");
   await env.MAGICLINKS.put(rateKey, "1", { expirationTtl: 60 });
