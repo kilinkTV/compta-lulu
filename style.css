@@ -115,6 +115,9 @@ input:focus, select:focus { outline: 2px solid var(--brun); outline-offset: 1px;
 .date-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .date-row input[type="date"] { flex: 1; min-width: 140px; }
 
+button { touch-action: manipulation; }
+button:disabled { opacity: 0.55; }
+
 .chip {
   padding: 10px 18px;
   border-radius: 40px;
@@ -146,6 +149,10 @@ input:focus, select:focus { outline: 2px solid var(--brun); outline-offset: 1px;
   font-size: 0.93rem;
   font-weight: 700;
   text-align: center;
+}
+.tile:active {
+  border-color: var(--brun);
+  background: var(--accent-soft);
 }
 .tile.selected {
   border-color: var(--brun);
@@ -183,7 +190,9 @@ input:focus, select:focus { outline: 2px solid var(--brun); outline-offset: 1px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
+.seg-btn:active { background: var(--accent-soft); }
 .seg-btn.active { background: var(--brun); color: var(--creme); }
+.seg-btn.active:active { background: var(--profond); }
 
 .btn-primary {
   width: 100%;
@@ -229,7 +238,9 @@ input:focus, select:focus { outline: 2px solid var(--brun); outline-offset: 1px;
   font-weight: 700;
   font-size: 0.82rem;
   padding: 6px;
+  border-radius: 8px;
 }
+.btn-danger-text:active { background: rgba(168, 69, 58, 0.12); }
 
 .preview-box {
   margin-top: 14px;
@@ -296,6 +307,7 @@ input:focus, select:focus { outline: 2px solid var(--brun); outline-offset: 1px;
   opacity: 0.7;
 }
 .nav-btn.active { color: var(--profond); opacity: 1; }
+.nav-btn:active { opacity: 1; color: var(--profond); }
 .nav-icon { width: 22px; height: 22px; }
 .nav-icon svg {
   width: 100%;
@@ -329,6 +341,7 @@ input:focus, select:focus { outline: 2px solid var(--brun); outline-offset: 1px;
   color: var(--brun);
   box-shadow: var(--shadow);
 }
+.icon-btn:active { background: var(--accent-soft); }
 
 .stat-card .stat-row {
   display: flex;

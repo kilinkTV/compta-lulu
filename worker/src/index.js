@@ -128,7 +128,7 @@ async function handleRequestLink(request, env) {
     return text("Trop de demandes, réessayez plus tard", 429);
   }
   const rateKey = `rate:${email}`;
-  if (await env.MAGICLINKS.get(rateKey)) return text("ok");
+  if (await env.MAGICLINKS.get(rateKey)) return json({ status: "wait" });
   await env.MAGICLINKS.put(rateKey, "1", { expirationTtl: 60 });
 
   const token = randomToken();
@@ -137,7 +137,7 @@ async function handleRequestLink(request, env) {
   const base = (body && body.appUrl) || "https://kilinktv.github.io/compta-lulu/";
   const link = `${base}${base.includes("?") ? "&" : "?"}magic=${token}`;
   await sendMagicLinkEmail(env, email, link);
-  return text("ok");
+  return json({ status: "sent" });
 }
 
 async function handleVerify(request, env) {

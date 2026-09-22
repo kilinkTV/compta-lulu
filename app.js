@@ -1,5 +1,9 @@
 "use strict";
 
+// Sans ce listener, iOS Safari ne déclenche jamais l'état CSS :active au toucher : aucun bouton
+// ne donnerait de retour visuel à l'appui (bug connu d'iOS, indépendant du code de l'appli).
+document.addEventListener("touchstart", () => {}, { passive: true });
+
 /* ============================= STORAGE ============================= */
 
 // Ne jamais changer cette clé : c'est elle qui permet de retrouver les données déjà enregistrées.
@@ -1410,6 +1414,7 @@ async function renderNotifCard() {
     return;
   }
   btn.classList.remove("hidden");
+  btn.disabled = false;
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
@@ -1431,6 +1436,8 @@ async function renderNotifCard() {
 }
 
 async function subscribePush() {
+  const btn = document.getElementById("btn-notif-toggle");
+  btn.disabled = true;
   try {
     const perm = await Notification.requestPermission();
     if (perm !== "granted") { showToast("Autorisation refusée"); return; }
@@ -1453,6 +1460,7 @@ async function subscribePush() {
 }
 
 async function unsubscribePush(sub) {
+  document.getElementById("btn-notif-toggle").disabled = true;
   try {
     await fetch(`${PUSH_SERVER_URL}/unsubscribe`, {
       method: "POST",
@@ -1494,6 +1502,8 @@ async function requestMagicLink(email) {
     body: JSON.stringify({ email, appUrl: location.origin + location.pathname })
   });
   if (!res.ok) throw new Error(await res.text());
+  const data = await res.json().catch(() => ({}));
+  return data.status; // "sent" ou "wait"
 }
 
 async function verifyMagicToken(token) {
@@ -1586,15 +1596,19 @@ document.getElementById("btn-sync-request").addEventListener("click", async () =
   const email = document.getElementById("sync-email-input").value.trim();
   if (!email || !email.includes("@")) { showToast("Adresse email invalide"); return; }
   const btn = document.getElementById("btn-sync-request");
+  if (btn.disabled) return; // évite un double envoi si on retape pendant la requête
+  const label = btn.textContent;
   btn.disabled = true;
+  btn.textContent = "Envoi en cours…";
   try {
-    await requestMagicLink(email);
-    showToast("Lien de connexion envoyé ✓ — vérifiez vos mails");
+    const result = await requestMagicLink(email);
+    showToast(result === "wait" ? "Lien déjà envoyé, vérifiez vos mails (patientez 1 min avant d'en redemander un)" : "Lien de connexion envoyé ✓ — vérifiez vos mails");
   } catch (e) {
     console.error(e);
-    showToast("Envoi impossible");
+    showToast("Envoi impossible : vérifiez votre connexion");
   }
   btn.disabled = false;
+  btn.textContent = label;
 });
 
 document.getElementById("btn-sync-disconnect").addEventListener("click", () => {
