@@ -33,6 +33,18 @@ export default {
       return new Response("ok", { headers: corsHeaders() });
     }
 
+    if (request.method === "POST" && url.pathname === "/auth/request-link") {
+      return handleRequestLink(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/auth/verify") {
+      return handleVerify(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/sync") {
+      return handleSync(request, env);
+    }
+
     // Déclenchement manuel pour vérifier l'envoi sans attendre le 28 : /send-test?key=...
     if (request.method === "GET" && url.pathname === "/send-test") {
       if (url.searchParams.get("key") !== env.TEST_KEY) {
@@ -49,6 +61,122 @@ export default {
     ctx.waitUntil(sendReminders(env));
   }
 };
+
+/* ---- Authentification par lien magique + synchronisation ---- */
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders() }
+  });
+}
+
+function text(msg, status = 200) {
+  return new Response(msg, { status, headers: corsHeaders() });
+}
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function isAllowedEmail(env, email) {
+  const allowed = String(env.ALLOWED_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return allowed.includes(email);
+}
+
+function randomToken() {
+  return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+}
+
+async function sendMagicLinkEmail(env, email, link) {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: env.MAIL_FROM || "Compta Lulu <onboarding@resend.dev>",
+      to: [email],
+      subject: "Connexion à Compta Lulu",
+      html: `
+        <p>Bonjour,</p>
+        <p>Voici votre lien de connexion à Compta Lulu, valable 15 minutes :</p>
+        <p><a href="${link}">Se connecter à Compta Lulu</a></p>
+        <p>Si vous n'avez rien demandé, ignorez cet email.</p>
+      `
+    })
+  });
+  if (!res.ok) {
+    console.error("resend error", res.status, await res.text());
+    throw new Error("Envoi d'email impossible");
+  }
+}
+
+async function handleRequestLink(request, env) {
+  const body = await request.json().catch(() => null);
+  const email = normalizeEmail(body && body.email);
+  if (!email || !email.includes("@")) return text("Email invalide", 400);
+  if (!isAllowedEmail(env, email)) return text("ok"); // ne pas révéler si l'email est autorisé ou non
+
+  const rateKey = `rate:${email}`;
+  if (await env.MAGICLINKS.get(rateKey)) return text("ok");
+  await env.MAGICLINKS.put(rateKey, "1", { expirationTtl: 60 });
+
+  const token = randomToken();
+  await env.MAGICLINKS.put(`token:${token}`, email, { expirationTtl: 900 }); // 15 minutes
+
+  const base = (body && body.appUrl) || "https://kilinktv.github.io/compta-lulu/";
+  const link = `${base}${base.includes("?") ? "&" : "?"}magic=${token}`;
+  await sendMagicLinkEmail(env, email, link);
+  return text("ok");
+}
+
+async function handleVerify(request, env) {
+  const body = await request.json().catch(() => null);
+  const token = body && body.token;
+  if (!token) return text("Jeton manquant", 400);
+
+  const key = `token:${token}`;
+  const email = await env.MAGICLINKS.get(key);
+  if (!email) return text("Lien invalide ou expiré", 401);
+  await env.MAGICLINKS.delete(key); // usage unique
+
+  const sessionToken = randomToken();
+  await env.SESSIONS.put(`session:${sessionToken}`, email, { expirationTtl: 60 * 60 * 24 * 180 }); // 180 jours
+  return json({ email, sessionToken });
+}
+
+async function requireSession(request, env) {
+  const auth = request.headers.get("Authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (!token) return null;
+  return env.SESSIONS.get(`session:${token}`);
+}
+
+async function handleSync(request, env) {
+  const email = await requireSession(request, env);
+  if (!email) return text("Non authentifié", 401);
+
+  const body = await request.json().catch(() => null);
+  if (!body || !body.data) return text("Requête invalide", 400);
+  const clientUpdatedAt = body.updatedAt || "";
+
+  const storedRaw = await env.SYNCDATA.get(`data:${email}`);
+  const stored = storedRaw ? JSON.parse(storedRaw) : null;
+
+  if (!stored || clientUpdatedAt > stored.updatedAt) {
+    await env.SYNCDATA.put(`data:${email}`, JSON.stringify({ updatedAt: clientUpdatedAt, data: body.data }));
+    return json({ newer: false });
+  }
+  if (stored.updatedAt > clientUpdatedAt) {
+    return json({ newer: true, updatedAt: stored.updatedAt, data: stored.data });
+  }
+  return json({ newer: false });
+}
 
 async function sendReminders(env) {
   const vapid = {

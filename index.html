@@ -164,6 +164,21 @@
   <!-- ===================== ECRAN REGLAGES ===================== -->
   <section id="screen-reglages" class="screen hidden">
 
+    <div class="card" id="sync-card">
+      <div class="card-title">Compte et synchronisation</div>
+      <p class="hint" style="margin-top:0">Reliez vos appareils (téléphone, PC) pour retrouver les mêmes données partout. Connexion sans mot de passe : un lien vous est envoyé par email.</p>
+      <div id="sync-form">
+        <label class="field-label">Adresse email</label>
+        <input type="email" id="sync-email-input" placeholder="vous@exemple.fr" inputmode="email" />
+        <button type="button" id="btn-sync-request" class="btn-secondary">Recevoir le lien de connexion</button>
+      </div>
+      <div id="sync-connected" class="hidden">
+        <div class="hint" style="margin-top:0">Connecté avec <strong id="sync-email"></strong></div>
+        <div class="hint" id="sync-last" style="margin-top:0"></div>
+        <button type="button" id="btn-sync-disconnect" class="btn-danger-text" style="width:100%; margin-top:10px;">Déconnecter cet appareil</button>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-title">Taux URSSAF (micro-BNC)</div>
       <label class="field-label">Cotisations sociales (%)</label>

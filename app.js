@@ -32,7 +32,8 @@ function defaultDB() {
       profil: { nom: "Lucile Le Pocreau", siret: "" },
       tresorerie: { montant: null, date: null, mode: "coussin", moisCoussin: 3, montantLibre: null }
     },
-    bilansValides: {}
+    bilansValides: {},
+    updatedAt: null
   };
 }
 
@@ -112,6 +113,7 @@ function normalizeDB(db) {
   s.tresorerie = { ...def.settings.tresorerie, ...(s.tresorerie || {}) };
   s.tresorerie.moisCoussin = s.tresorerie.moisCoussin ?? 3;
   db.bilansValides = db.bilansValides && typeof db.bilansValides === "object" ? db.bilansValides : {};
+  db.updatedAt = db.updatedAt || null;
   migrateDB(db);
   return db;
 }
@@ -177,9 +179,11 @@ function loadDB() {
   }
 }
 
-function saveDB(db) {
+function saveDB(db, opts = {}) {
+  if (opts.touch !== false) db.updatedAt = new Date().toISOString();
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    if (opts.touch !== false) scheduleSync();
     return true;
   } catch (e) {
     console.error("Enregistrement impossible", e);
@@ -1014,6 +1018,7 @@ function renderReglages() {
   renderTresorerieSettings();
   renderSnapshots();
   renderNotifCard();
+  updateSyncStatus();
 
   const typesList = document.getElementById("types-list");
   typesList.innerHTML = "";
@@ -1437,6 +1442,162 @@ async function unsubscribePush(sub) {
   }
   renderNotifCard();
 }
+
+/* ============================= SYNCHRONISATION MULTI-APPAREILS ============================= */
+
+// Même service que les rappels push (voir worker/README.md).
+const SYNC_SERVER_URL = "https://compta-lulu-push.benjmug.workers.dev";
+const SYNC_SESSION_KEY = "comptaLulu_syncSession"; // { email, token } — séparé des données comptables
+
+function getSyncSession() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SYNC_SESSION_KEY));
+    return s && s.email && s.token ? s : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function setSyncSession(s) {
+  if (s) localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify(s));
+  else localStorage.removeItem(SYNC_SESSION_KEY);
+}
+
+async function requestMagicLink(email) {
+  const res = await fetch(`${SYNC_SERVER_URL}/auth/request-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, appUrl: location.origin + location.pathname })
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+async function verifyMagicToken(token) {
+  const res = await fetch(`${SYNC_SERVER_URL}/auth/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token })
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  setSyncSession({ email: data.email, token: data.sessionToken });
+}
+
+function disconnectSync() {
+  setSyncSession(null);
+  updateSyncStatus();
+}
+
+let syncDebounce = null;
+function scheduleSync() {
+  if (!getSyncSession()) return;
+  clearTimeout(syncDebounce);
+  syncDebounce = setTimeout(syncNow, 3000);
+}
+
+let syncing = false;
+async function syncNow() {
+  const session = getSyncSession();
+  if (!session || syncing || !DB.updatedAt) return;
+  syncing = true;
+  try {
+    const res = await fetch(`${SYNC_SERVER_URL}/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.token}` },
+      body: JSON.stringify({ updatedAt: DB.updatedAt, data: DB })
+    });
+    if (res.status === 401) {
+      setSyncSession(null);
+      updateSyncStatus();
+      return;
+    }
+    if (!res.ok) return;
+    const remote = await res.json();
+    if (remote.newer && remote.data) {
+      // Les données de l'autre appareil sont plus récentes : on les adopte, en gardant une copie de sécurité des données locales.
+      takeSnapshot(localStorage.getItem(STORAGE_KEY), "avant synchronisation");
+      DB = normalizeDB(remote.data);
+      saveDB(DB, { touch: false });
+      renderTypeGrid();
+      renderCategorieSelect();
+      showScreen(currentScreen);
+      showToast("Données synchronisées ✓");
+    }
+    lastSyncAt = new Date();
+    updateSyncStatus();
+  } catch (e) {
+    console.error("Synchronisation impossible", e);
+  } finally {
+    syncing = false;
+  }
+}
+
+let lastSyncAt = null;
+
+function updateSyncStatus() {
+  const card = document.getElementById("sync-card");
+  if (!card) return;
+  const session = getSyncSession();
+  const connectedBox = document.getElementById("sync-connected");
+  const formBox = document.getElementById("sync-form");
+  if (session) {
+    connectedBox.classList.remove("hidden");
+    formBox.classList.add("hidden");
+    document.getElementById("sync-email").textContent = session.email;
+    document.getElementById("sync-last").textContent = lastSyncAt
+      ? `Dernière synchro à ${lastSyncAt.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`
+      : "Pas encore synchronisé sur cet appareil";
+  } else {
+    connectedBox.classList.add("hidden");
+    formBox.classList.remove("hidden");
+  }
+}
+
+document.getElementById("btn-sync-request").addEventListener("click", async () => {
+  const email = document.getElementById("sync-email-input").value.trim();
+  if (!email || !email.includes("@")) { showToast("Adresse email invalide"); return; }
+  const btn = document.getElementById("btn-sync-request");
+  btn.disabled = true;
+  try {
+    await requestMagicLink(email);
+    showToast("Lien de connexion envoyé ✓ — vérifiez vos mails");
+  } catch (e) {
+    console.error(e);
+    showToast("Envoi impossible");
+  }
+  btn.disabled = false;
+});
+
+document.getElementById("btn-sync-disconnect").addEventListener("click", () => {
+  if (!confirm("Déconnecter cet appareil ? Il ne recevra plus les mises à jour de l'autre appareil (vos données restent enregistrées ici).")) return;
+  disconnectSync();
+  showToast("Déconnecté");
+});
+
+// Lien magique ouvert depuis l'email : ?magic=<jeton>
+(async function handleMagicLink() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get("magic");
+  if (!token) return;
+  history.replaceState(null, "", location.pathname);
+  try {
+    await verifyMagicToken(token);
+    showToast("Connecté ✓ — synchronisation en cours");
+    updateSyncStatus();
+    syncNow();
+  } catch (e) {
+    console.error(e);
+    showToast("Lien invalide ou expiré, redemandez-en un");
+  }
+})();
+
+if (getSyncSession()) {
+  syncNow();
+  setInterval(syncNow, 60000);
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") syncNow();
+});
 
 /* ============================= HELPERS ============================= */
 

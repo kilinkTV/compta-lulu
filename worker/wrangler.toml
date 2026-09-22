@@ -10,9 +10,24 @@ crons = ["0 8 28 * *"]
 binding = "SUBS"
 id = "7b75dc7b585a42a1af1e6d64171a2209"
 
+[[kv_namespaces]]
+binding = "MAGICLINKS"
+id = "3f00d44f7fe74f13a752740f1db3d75a"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "481965da28274827a66c5dc393ed878c"
+
+[[kv_namespaces]]
+binding = "SYNCDATA"
+id = "f3849ed245e543b5bf72d62ca578d078"
+
 [vars]
 VAPID_SUBJECT = "mailto:benjmug@gmail.com"
 VAPID_PUBLIC_KEY = "BK7rL1-jrxHs0WjyjSmlfuj-xWf0ezc_oURak_srCxLXCvzWipddZZRDUw28axgxZ4Shya8tY46N4oHydaGtLU4"
+# Seuls ces emails peuvent créer une synchronisation (évite qu'un inconnu utilise le service).
+ALLOWED_EMAILS = "benjmug@gmail.com"
 
-# VAPID_PRIVATE_KEY et TEST_KEY sont des secrets : ne jamais les mettre ici.
-# Ils se règlent avec `wrangler secret put VAPID_PRIVATE_KEY` et `wrangler secret put TEST_KEY`.
+# VAPID_PRIVATE_KEY, TEST_KEY et RESEND_API_KEY sont des secrets : ne jamais les mettre ici.
+# Ils se règlent avec `wrangler secret put <NOM>`.
+# MAIL_FROM (facultatif) : adresse d'expéditeur si un domaine est vérifié sur Resend.
