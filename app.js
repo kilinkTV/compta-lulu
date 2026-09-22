@@ -907,7 +907,11 @@ function renderHistorique() {
         <div class="entry-amount negative">-${fmtEUR(item.montant)}</div>
       `;
     }
-    el.addEventListener("click", () => (item.virtual ? openFixedInfoModal(item) : openEntryModal(item)));
+    el.addEventListener("click", () => {
+      if (item.virtual) openFixedInfoModal(item);
+      else if (item.genereAuto) openAutoDepenseInfoModal(item);
+      else openEntryModal(item);
+    });
     list.appendChild(el);
   });
 }
@@ -921,6 +925,24 @@ function openFixedInfoModal(item) {
   document.getElementById("fixed-info-go").addEventListener("click", () => {
     closeModal();
     showScreen("reglages");
+  });
+}
+
+function openAutoDepenseInfoModal(item) {
+  const key = Object.keys(DB.bilansValides).find((k) => DB.bilansValides[k].depenseId === item.id);
+  openModal(`
+    <div class="card-title">${escapeHtml(item.categorie)}</div>
+    <p class="hint" style="margin-top:0">${escapeHtml(item.note || "")}. Dépense générée automatiquement en validant le bilan du mois concerné, pour un montant de <strong>${fmtEUR(item.montant)}</strong>. Pour la modifier, ouvrez le bilan de ce mois et utilisez « Annuler la validation ».</p>
+    <button type="button" class="btn-primary" id="auto-depense-go">Ouvrir le bilan</button>
+  `);
+  document.getElementById("auto-depense-go").addEventListener("click", () => {
+    closeModal();
+    if (key) {
+      const [y, m] = key.split("-").map(Number);
+      bilanYear = y;
+      bilanMonth = m - 1;
+    }
+    showScreen("bilan");
   });
 }
 
@@ -1502,11 +1524,12 @@ async function syncNow() {
   const session = getSyncSession();
   if (!session || syncing) return;
   syncing = true;
+  const sentUpdatedAt = DB.updatedAt; // capturé avant l'appel réseau, pour détecter une saisie locale entre-temps
   try {
     const res = await fetch(`${SYNC_SERVER_URL}/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.token}` },
-      body: JSON.stringify({ updatedAt: DB.updatedAt, data: DB })
+      body: JSON.stringify({ updatedAt: sentUpdatedAt, data: DB })
     });
     if (res.status === 401) {
       setSyncSession(null);
@@ -1516,6 +1539,10 @@ async function syncNow() {
     if (!res.ok) return;
     const remote = await res.json();
     if (remote.newer && remote.data) {
+      if (DB.updatedAt !== sentUpdatedAt) {
+        // Une saisie locale a eu lieu pendant l'appel réseau : ne pas l'écraser, la prochaine synchro la prendra en compte.
+        return;
+      }
       // Les données de l'autre appareil sont plus récentes : on les adopte, en gardant une copie de sécurité des données locales.
       takeSnapshot(localStorage.getItem(STORAGE_KEY), "avant synchronisation");
       DB = normalizeDB(remote.data);
