@@ -1505,7 +1505,11 @@ async function requestMagicLink(email) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, appUrl: location.origin + location.pathname })
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const err = new Error(await res.text());
+    if (res.status === 429) err.rateLimited = true;
+    throw err;
+  }
   const data = await res.json().catch(() => ({}));
   return data.status; // "sent" ou "wait"
 }
@@ -1613,8 +1617,13 @@ document.getElementById("btn-sync-request").addEventListener("click", async () =
     showToast(result === "wait" ? "Lien déjà envoyé, vérifiez vos mails (patientez 1 min avant d'en redemander un)" : "Lien de connexion envoyé ✓ — vérifiez vos mails");
   } catch (e) {
     console.error(e);
-    confirmText = "Échec de l'envoi";
-    showToast("Envoi impossible : vérifiez votre connexion");
+    if (e.rateLimited) {
+      confirmText = "Trop d'essais, patientez";
+      showToast("Trop de tentatives : réessayez dans quelques minutes");
+    } else {
+      confirmText = "Échec de l'envoi";
+      showToast("Envoi impossible : vérifiez votre connexion");
+    }
   }
   // Confirmation affichée directement sur le bouton : reste visible même si le toast est masqué (clavier, etc.).
   btn.textContent = confirmText;

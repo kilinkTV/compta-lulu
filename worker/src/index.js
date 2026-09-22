@@ -124,7 +124,7 @@ async function handleRequestLink(request, env) {
 
   // Anti-abus : ce service n'est pas destiné à un usage public, mais son URL pourrait être découverte.
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-  if (!(await checkRateLimit(env, `rateip:${ip}`, 5, 3600))) {
+  if (!(await checkRateLimit(env, `rateip:${ip}`, 10, 3600))) {
     return text("Trop de demandes, réessayez plus tard", 429);
   }
   const rateKey = `rate:${email}`;
