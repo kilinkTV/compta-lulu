@@ -160,7 +160,9 @@ function loadDB() {
   }
   if (!raw) {
     const db = defaultDB();
-    saveDB(db);
+    // touch:false : une base neuve n'a encore aucune vraie donnée. Si cet appareil se relie ensuite à un
+    // compte existant, elle ne doit jamais paraître "plus récente" que des données réelles et écraser celles-ci.
+    saveDB(db, { touch: false });
     return db;
   }
   try {
