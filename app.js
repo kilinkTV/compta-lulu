@@ -1498,7 +1498,7 @@ function scheduleSync() {
 let syncing = false;
 async function syncNow() {
   const session = getSyncSession();
-  if (!session || syncing || !DB.updatedAt) return;
+  if (!session || syncing) return;
   syncing = true;
   try {
     const res = await fetch(`${SYNC_SERVER_URL}/sync`, {
