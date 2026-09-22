@@ -8,7 +8,7 @@ crons = ["0 8 28 * *"]
 
 [[kv_namespaces]]
 binding = "SUBS"
-id = "REPLACE_AFTER_KV_CREATE"
+id = "7b75dc7b585a42a1af1e6d64171a2209"
 
 [vars]
 VAPID_SUBJECT = "mailto:benjmug@gmail.com"

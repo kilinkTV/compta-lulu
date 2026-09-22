@@ -1355,8 +1355,7 @@ function downloadBlob(blob, filename) {
 
 // Clé publique VAPID : sans danger à exposer, elle sert uniquement à vérifier l'origine des envois.
 const PUSH_VAPID_PUBLIC_KEY = "BK7rL1-jrxHs0WjyjSmlfuj-xWf0ezc_oURak_srCxLXCvzWipddZZRDUw28axgxZ4Shya8tY46N4oHydaGtLU4";
-// Renseigné une fois le petit service de rappel déployé (voir worker/README.md).
-const PUSH_SERVER_URL = "";
+const PUSH_SERVER_URL = "https://compta-lulu-push.benjmug.workers.dev";
 
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
