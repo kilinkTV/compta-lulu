@@ -212,8 +212,9 @@
 
     <div class="card">
       <div class="card-title">Trésorerie</div>
-      <label class="field-label">Trésorerie actuelle (solde du compte pro, €)</label>
+      <label class="field-label">Solde de référence (point de départ, €)</label>
       <input type="number" id="tres-montant" step="0.01" inputmode="decimal" placeholder="0.00" />
+      <p class="hint" style="margin-top:0">Renseigné une fois, le solde se met ensuite à jour tout seul à chaque prestation ou dépense saisie. Modifiez-le seulement pour recaler (frais bancaires, retrait perso...).</p>
       <div class="hint" id="tres-date"></div>
       <label class="field-label">Trésorerie à garder sur le compte</label>
       <div class="segmented">
@@ -231,7 +232,7 @@
         <input type="number" id="tres-libre" step="0.01" min="0" inputmode="decimal" placeholder="Ex : 3000" />
         <p class="hint">Vous fixez vous-même la réserve à conserver, quel que soit le niveau de vos charges.</p>
       </div>
-      <p class="hint">Au bilan, l'appli met de côté les cotisations URSSAF déjà dues mais pas encore prélevées, garde cette trésorerie, et vous conseille de vous verser le reste. Pensez à mettre la trésorerie à jour avant chaque bilan.</p>
+      <p class="hint">Au bilan, l'appli met de côté les cotisations URSSAF déjà dues mais pas encore prélevées, garde cette trésorerie, et vous conseille de vous verser le reste — à partir du solde calculé automatiquement.</p>
       <button type="button" id="btn-save-tresorerie" class="btn-secondary">Enregistrer</button>
     </div>
 

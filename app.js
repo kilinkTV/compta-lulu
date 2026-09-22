@@ -557,6 +557,40 @@ function shiftMonth(year, month, delta) {
 
 /* ============================= TRESORERIE ============================= */
 
+// Le solde renseigné (t.montant à la date t.date) sert de point de départ : le solde actuel est recalculé
+// automatiquement en ajoutant tout ce qui a été perçu et en retirant tout ce qui a été dépensé depuis,
+// sans avoir à ressaisir le solde à chaque bilan. Renseigner à nouveau un montant recale ce point de départ
+// (utile si un mouvement échappe à l'appli : frais bancaires, retrait perso, décalage d'encaissement...).
+function computeSoldeActuel(now = new Date()) {
+  const t = DB.settings.tresorerie;
+  if (t.montant === null || t.montant === undefined || !t.date) return null;
+  const depuis = t.date;
+  const todayStr = isoFromDate(now);
+  let solde = t.montant;
+
+  // Strictement après la date de référence : le montant recalé est censé déjà inclure tout ce qui s'est
+  // passé ce jour-là (sinon une saisie du jour du recalage serait comptée deux fois).
+  DB.prestations.forEach((p) => {
+    if (p.date > depuis && p.date <= todayStr) solde += p.montantPercu;
+  });
+  DB.depenses.forEach((d) => {
+    if (d.date > depuis && d.date <= todayStr) solde -= d.montant;
+  });
+
+  // Charges fixes (virtuelles, jamais dans DB.depenses) : comptées au 1er de chaque mois entre la référence et aujourd'hui.
+  const [dy, dm] = depuis.split("-").map(Number);
+  let cursor = { year: dy, month: dm - 1 };
+  const end = { year: now.getFullYear(), month: now.getMonth() };
+  while (cursor.year < end.year || (cursor.year === end.year && cursor.month <= end.month)) {
+    fixedEntriesFor(cursor.year, cursor.month).forEach((e) => {
+      if (e.date > depuis && e.date <= todayStr) solde -= e.montant;
+    });
+    cursor = shiftMonth(cursor.year, cursor.month, 1);
+  }
+
+  return roundCents(solde);
+}
+
 // Salaire conseillé = trésorerie actuelle - cotisations URSSAF déjà dues mais pas encore prélevées - coussin de sécurité.
 // Coussin = N mois de charges fixes + dépenses courantes moyennes : en micro-entreprise les cotisations suivent le
 // chiffre d'affaires, ce sont donc les charges fixes qui pèsent même sans revenu.
@@ -597,13 +631,14 @@ function computeTresorerie(now = new Date()) {
   const coussin = mode === "libre" ? roundCents(Math.max(0, t.montantLibre || 0)) : roundCents(mensuel * t.moisCoussin);
   urssaf = roundCents(urssaf);
 
-  const configured = t.montant !== null && t.montant !== undefined;
-  const salaire = configured ? Math.max(0, roundCents(t.montant - urssaf - coussin)) : 0;
+  const soldeActuel = computeSoldeActuel(now);
+  const configured = soldeActuel !== null;
+  const salaire = configured ? Math.max(0, roundCents(soldeActuel - urssaf - coussin)) : 0;
   return {
-    configured, montant: t.montant, date: t.date, mode, moisCoussin: t.moisCoussin,
+    configured, montant: soldeActuel, date: t.date, mode, moisCoussin: t.moisCoussin,
     urssaf, urssafMois, fixes, ponctuellesMoy, mensuel, coussin, salaire,
-    manque: configured ? Math.max(0, roundCents(urssaf + coussin - t.montant)) : 0,
-    resteApres: configured ? roundCents(t.montant - salaire) : 0
+    manque: configured ? Math.max(0, roundCents(urssaf + coussin - soldeActuel)) : 0,
+    resteApres: configured ? roundCents(soldeActuel - salaire) : 0
   };
 }
 
@@ -623,7 +658,6 @@ function renderTresorerieCard() {
     return;
   }
 
-  const ageJours = t.date ? Math.floor((new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate()) - new Date(t.date + "T00:00:00")) / 86400000) : 0;
   const moisUrssaf = t.urssafMois.length ? ` (${t.urssafMois.join(", ")})` : "";
   const libre = t.mode === "libre";
   const reserveNom = libre ? "réserve" : "coussin";
@@ -636,22 +670,23 @@ function renderTresorerieCard() {
   }
   body.innerHTML = `
     <div class="stat-row"><span>Trésorerie actuelle</span><strong>${fmtEUR(t.montant)}</strong></div>
-    <div class="stat-row muted"><span>mise à jour le ${t.date ? t.date.split("-").reverse().join("/") : "—"}</span><span></span></div>
+    <div class="stat-row muted"><span>calculée automatiquement · recalée le ${t.date ? t.date.split("-").reverse().join("/") : "—"}</span><span></span></div>
     <div class="stat-row"><span>À garder pour l'URSSAF${moisUrssaf}</span><span>- ${fmtEUR(t.urssaf)}</span></div>
     <div class="stat-row"><span>${reserveLigne}</span><span>- ${fmtEUR(t.coussin)}</span></div>
     <div class="stat-row total"><span>Salaire conseillé</span><strong>${fmtEUR(t.salaire)}</strong></div>
     <div class="hint">${conseil}</div>
-    ${ageJours > 10 ? `<div class="hint" style="color:var(--danger)">Votre trésorerie date de ${ageJours} jours : mettez-la à jour pour un conseil fiable.</div>` : ""}
     ${!libre && t.fixes === 0 ? `<div class="hint" style="color:var(--danger)">Aucune charge fixe renseignée (Réglages) : le coussin est calculé à 0 €.</div>` : ""}
   `;
 }
 
 function openTresorerieModal() {
   const t = DB.settings.tresorerie;
+  const estime = computeSoldeActuel();
   openModal(`
-    <div class="card-title">Trésorerie actuelle</div>
+    <div class="card-title">Recaler la trésorerie</div>
+    <p class="hint" style="margin-top:0">Le solde se calcule ensuite tout seul (prestations et dépenses saisies), inutile de revenir ici à chaque bilan. Recalez seulement si le vrai solde bancaire diffère (frais bancaires, retrait perso, chèque encaissé en différé...).</p>
     <label class="field-label">Solde actuel du compte pro (€)</label>
-    <input type="number" id="tres-input" step="0.01" inputmode="decimal" value="${t.montant ?? ""}" />
+    <input type="number" id="tres-input" step="0.01" inputmode="decimal" value="${estime ?? t.montant ?? ""}" />
     <button type="button" class="btn-primary" id="tres-save">Enregistrer</button>
   `);
   document.getElementById("tres-save").addEventListener("click", () => {
@@ -1147,7 +1182,7 @@ function renderTresorerieSettings() {
   document.getElementById("tres-montant").value = t.montant ?? "";
   document.getElementById("tres-mois").value = t.moisCoussin;
   document.getElementById("tres-libre").value = t.montantLibre ?? "";
-  document.getElementById("tres-date").textContent = t.date ? `Mis à jour le ${t.date.split("-").reverse().join("/")}` : "Pas encore renseignée";
+  document.getElementById("tres-date").textContent = t.date ? `Recalé le ${t.date.split("-").reverse().join("/")}` : "Pas encore renseigné";
   setTresMode(t.mode === "libre" ? "libre" : "coussin");
   updateCoussinPreview();
 }
