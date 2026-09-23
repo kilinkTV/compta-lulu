@@ -777,6 +777,7 @@ function renderBilan() {
   document.getElementById("stat-depenses").textContent = fmtEUR(b.totalDepenses);
   document.getElementById("stat-fixes").textContent = fmtEUR(b.depensesFixes);
   document.getElementById("stat-net").textContent = fmtEUR(b.net);
+  safeRender(renderDepensesDetail);
   safeRender(renderTresorerieCard);
   safeRender(renderValidationCard);
 
@@ -793,6 +794,33 @@ function renderBilan() {
       repList.appendChild(row);
     });
   }
+}
+
+function renderDepensesDetail() {
+  const b = computeBilan(bilanYear, bilanMonth);
+  const list = document.getElementById("depenses-detail-list");
+  list.innerHTML = "";
+  if (b.depenses.length === 0) {
+    list.innerHTML = `<div class="empty-state">Aucune dépense ce mois-ci</div>`;
+    return;
+  }
+  b.depenses.forEach((item) => {
+    const el = document.createElement("div");
+    el.className = "entry-item";
+    el.innerHTML = `
+      <div class="entry-main">
+        <div class="entry-title">${escapeHtml(item.categorie)}</div>
+        <div class="entry-sub">${fmtDateHuman(item.date)}${item.note ? " · " + escapeHtml(item.note) : item.recurringId ? " · Charge mensuelle fixe" : ""}</div>
+      </div>
+      <div class="entry-amount negative">-${fmtEUR(item.montant)}</div>
+    `;
+    el.addEventListener("click", () => {
+      if (item.virtual) openFixedInfoModal(item);
+      else if (item.genereAuto) openAutoDepenseInfoModal(item);
+      else openEntryModal({ ...item, kind: "depense" });
+    });
+    list.appendChild(el);
+  });
 }
 
 document.getElementById("btn-export-pdf").addEventListener("click", async () => {
