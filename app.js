@@ -178,7 +178,13 @@ function loadDB() {
     const last = list[list.length - 1];
     if ((parsed.version || 1) < SCHEMA_VERSION) takeSnapshot(raw, "avant mise à jour");
     else if (!last || isoFromDate(new Date(last.t)) !== todayISO()) takeSnapshot(raw, "automatique");
-    return normalizeDB(parsed);
+    const hadNoTimestamp = !parsed.updatedAt;
+    const db = normalizeDB(parsed);
+    // L'horodatage déduit pour de vraies données antérieures à la synchro doit être écrit tout de suite :
+    // sinon il serait recalculé à "maintenant" à CHAQUE ouverture (jamais persisté), ce qui ferait paraître
+    // cet appareil indéfiniment "plus récent" et risquerait d'écraser ailleurs de vraies données plus à jour.
+    if (hadNoTimestamp && db.updatedAt) saveDB(db, { touch: false });
+    return db;
   } catch (e) {
     // Jamais d'écrasement : les données enregistrées restent intactes, on en garde une copie et on travaille en mémoire.
     console.error("Données illisibles : conservées telles quelles.", e);
@@ -763,8 +769,8 @@ function renderBilan() {
   document.getElementById("stat-depenses").textContent = fmtEUR(b.totalDepenses);
   document.getElementById("stat-fixes").textContent = fmtEUR(b.depensesFixes);
   document.getElementById("stat-net").textContent = fmtEUR(b.net);
-  renderTresorerieCard();
-  renderValidationCard();
+  safeRender(renderTresorerieCard);
+  safeRender(renderValidationCard);
 
   const repList = document.getElementById("repartition-list");
   repList.innerHTML = "";
@@ -1075,7 +1081,21 @@ function openEntryModal(item) {
 
 /* ============================= ECRAN REGLAGES ============================= */
 
+// Isole chaque bloc : un bug dans une carte (ex: trésorerie) ne doit jamais empêcher les autres de s'afficher,
+// sinon par ex. l'indicateur "connectée" à la synchro resterait bloqué sur son état par défaut ("déconnectée")
+// alors que la session est toujours valide, simplement parce qu'un bloc précédent a levé une exception.
+function safeRender(fn) {
+  try {
+    fn();
+  } catch (e) {
+    console.error("Erreur d'affichage", e);
+  }
+}
+
 function renderReglages() {
+  // En premier : l'indicateur de connexion ne doit jamais dépendre du bon déroulement des blocs suivants.
+  safeRender(updateSyncStatus);
+
   const r = DB.settings.urssaf;
   document.getElementById("rate-cotisations").value = r.cotisations;
   document.getElementById("rate-ir").value = r.irLiberatoire;
@@ -1084,11 +1104,11 @@ function renderReglages() {
   document.getElementById("rate-sumup").value = DB.settings.sumupRate;
   document.getElementById("profil-nom").value = DB.settings.profil.nom || "";
   document.getElementById("profil-siret").value = DB.settings.profil.siret || "";
-  renderChargesFixes();
-  renderTresorerieSettings();
-  renderSnapshots();
-  renderNotifCard();
-  updateSyncStatus();
+  safeRender(renderChargesFixes);
+  safeRender(renderTresorerieSettings);
+  safeRender(renderSnapshots);
+  safeRender(renderNotifCard);
+  safeRender(updateSyncStatus);
 
   const typesList = document.getElementById("types-list");
   typesList.innerHTML = "";

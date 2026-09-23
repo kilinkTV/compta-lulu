@@ -1,4 +1,4 @@
-const CACHE_NAME = "compta-lulu-v14";
+const CACHE_NAME = "compta-lulu-v15";
 const ASSETS = [
   "./",
   "./index.html",
