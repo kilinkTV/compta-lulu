@@ -654,12 +654,14 @@ function renderTresorerieCard() {
   const card = document.getElementById("tresorerie-card");
   const nowD = new Date();
   const prev = shiftMonth(nowD.getFullYear(), nowD.getMonth(), -1);
-  // Visible à partir du mois précédent (pour valider/verser après coup) et pour tous les mois à venir
-  // (pour anticiper) : seuls les bilans plus anciens sont masqués, la trésorerie affichée étant toujours
-  // celle d'aujourd'hui, pas celle du mois affiché.
-  const isPastBeforePrevious = ymKey(bilanYear, bilanMonth) < ymKey(prev.year, prev.month);
-  card.classList.toggle("hidden", isPastBeforePrevious);
-  if (isPastBeforePrevious) return;
+  // Cette carte répond à "combien mettre de côté aujourd'hui" : elle ne dépend jamais du mois affiché,
+  // seulement de la date du jour. Elle n'a donc de sens que sur le mois en cours (pour anticiper) et le
+  // précédent (pour valider/se verser un salaire juste après l'avoir clôturé) — ailleurs, montrer le même
+  // chiffre sur des mois différents est trompeur.
+  const isCurrent = bilanYear === nowD.getFullYear() && bilanMonth === nowD.getMonth();
+  const isPrevious = bilanYear === prev.year && bilanMonth === prev.month;
+  card.classList.toggle("hidden", !(isCurrent || isPrevious));
+  if (!(isCurrent || isPrevious)) return;
 
   const t = computeTresorerie(nowD);
   const body = document.getElementById("tresorerie-body");
