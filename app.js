@@ -652,10 +652,12 @@ function renderTresorerieCard() {
   const card = document.getElementById("tresorerie-card");
   const nowD = new Date();
   const prev = shiftMonth(nowD.getFullYear(), nowD.getMonth(), -1);
-  const isCurrent = bilanYear === nowD.getFullYear() && bilanMonth === nowD.getMonth();
-  const isPrevious = bilanYear === prev.year && bilanMonth === prev.month;
-  card.classList.toggle("hidden", !(isCurrent || isPrevious));
-  if (!(isCurrent || isPrevious)) return;
+  // Visible à partir du mois précédent (pour valider/verser après coup) et pour tous les mois à venir
+  // (pour anticiper) : seuls les bilans plus anciens sont masqués, la trésorerie affichée étant toujours
+  // celle d'aujourd'hui, pas celle du mois affiché.
+  const isPastBeforePrevious = ymKey(bilanYear, bilanMonth) < ymKey(prev.year, prev.month);
+  card.classList.toggle("hidden", isPastBeforePrevious);
+  if (isPastBeforePrevious) return;
 
   const t = computeTresorerie(nowD);
   const body = document.getElementById("tresorerie-body");
@@ -668,6 +670,7 @@ function renderTresorerieCard() {
   const libre = t.mode === "libre";
   const reserveNom = libre ? "réserve" : "coussin";
   const reserveLigne = libre ? "Réserve de trésorerie choisie" : `Coussin de sécurité (${t.moisCoussin} mois de charges)`;
+  const isDisplayedMonth = bilanYear === nowD.getFullYear() && bilanMonth === nowD.getMonth();
   let conseil;
   if (t.salaire > 0) {
     conseil = `Versez-vous <strong>${fmtEUR(t.salaire)}</strong> : il restera ${fmtEUR(t.resteApres)} sur le compte (${fmtEUR(t.urssaf)} pour l'URSSAF + ${fmtEUR(t.coussin)} de ${reserveNom}).`;
@@ -681,6 +684,7 @@ function renderTresorerieCard() {
     <div class="stat-row"><span>${reserveLigne}</span><span>- ${fmtEUR(t.coussin)}</span></div>
     <div class="stat-row total"><span>Salaire conseillé</span><strong>${fmtEUR(t.salaire)}</strong></div>
     <div class="hint">${conseil}</div>
+    ${!isDisplayedMonth ? `<div class="hint">Ces chiffres reflètent la trésorerie d'aujourd'hui, pas celle du mois affiché.</div>` : ""}
     ${!libre && t.fixes === 0 ? `<div class="hint" style="color:var(--danger)">Aucune charge fixe renseignée (Réglages) : le coussin est calculé à 0 €.</div>` : ""}
   `;
 }
