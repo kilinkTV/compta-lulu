@@ -737,7 +737,10 @@ function computeBilan(year, month) {
 
   const totalDepenses = roundCents(depenses.reduce((s, d) => s + d.montant, 0));
   const depensesFixes = roundCents(depenses.filter((d) => d.recurringId).reduce((s, d) => s + d.montant, 0));
-  const autresDepenses = roundCents(totalDepenses - depensesFixes);
+  // L'URSSAF prélevée ce mois-ci est la dépense générée à la validation d'un bilan (2 mois plus tôt), pas
+  // l'estimation ci-dessus qui porte sur le CA de CE mois — les deux tombent rarement en même temps.
+  const depensesUrssaf = roundCents(depenses.filter((d) => d.genereAuto).reduce((s, d) => s + d.montant, 0));
+  const autresDepenses = roundCents(totalDepenses - depensesFixes - depensesUrssaf);
   const net = roundCents(percu - cotTotal - totalDepenses);
 
   const repartition = {};
@@ -752,7 +755,7 @@ function computeBilan(year, month) {
     echeance: nextEcheance(year, month),
     prestas, depenses, ca, percu, frais, rates,
     cot1, cot2, cot3, cotTotal,
-    totalDepenses, depensesFixes, autresDepenses, net, repartition
+    totalDepenses, depensesFixes, depensesUrssaf, autresDepenses, net, repartition
   };
 }
 
@@ -776,8 +779,9 @@ function renderBilan() {
 
   document.getElementById("stat-depenses").textContent = fmtEUR(b.totalDepenses);
   document.getElementById("stat-fixes").textContent = fmtEUR(b.depensesFixes);
+  document.getElementById("stat-dep-urssaf").textContent = fmtEUR(b.depensesUrssaf);
+  document.getElementById("stat-dep-autres").textContent = fmtEUR(b.autresDepenses);
   document.getElementById("stat-net").textContent = fmtEUR(b.net);
-  safeRender(renderDepensesDetail);
   safeRender(renderTresorerieCard);
   safeRender(renderValidationCard);
 
@@ -794,33 +798,6 @@ function renderBilan() {
       repList.appendChild(row);
     });
   }
-}
-
-function renderDepensesDetail() {
-  const b = computeBilan(bilanYear, bilanMonth);
-  const list = document.getElementById("depenses-detail-list");
-  list.innerHTML = "";
-  if (b.depenses.length === 0) {
-    list.innerHTML = `<div class="empty-state">Aucune dépense ce mois-ci</div>`;
-    return;
-  }
-  b.depenses.forEach((item) => {
-    const el = document.createElement("div");
-    el.className = "entry-item";
-    el.innerHTML = `
-      <div class="entry-main">
-        <div class="entry-title">${escapeHtml(item.categorie)}</div>
-        <div class="entry-sub">${fmtDateHuman(item.date)}${item.note ? " · " + escapeHtml(item.note) : item.recurringId ? " · Charge mensuelle fixe" : ""}</div>
-      </div>
-      <div class="entry-amount negative">-${fmtEUR(item.montant)}</div>
-    `;
-    el.addEventListener("click", () => {
-      if (item.virtual) openFixedInfoModal(item);
-      else if (item.genereAuto) openAutoDepenseInfoModal(item);
-      else openEntryModal({ ...item, kind: "depense" });
-    });
-    list.appendChild(el);
-  });
 }
 
 document.getElementById("btn-export-pdf").addEventListener("click", async () => {

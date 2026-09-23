@@ -229,6 +229,7 @@ function buildBilanPdf(d, profil) {
 
   section("Dépenses");
   row("Charges fixes (loyer, assurances, abonnements)", pdfEUR(d.depensesFixes));
+  row("URSSAF (cotisations prélevées ce mois-ci)", pdfEUR(d.depensesUrssaf));
   row("Autres dépenses", pdfEUR(d.autresDepenses));
   row("Total dépenses", pdfEUR(d.totalDepenses), { bold: true });
 
