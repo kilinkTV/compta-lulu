@@ -319,12 +319,13 @@ function fixedEntriesFor(year, month) {
 
 /* ============================= NAVIGATION ============================= */
 
-const SCREENS = ["saisie", "bilan", "historique", "reglages"];
+const SCREENS = ["saisie", "bilan", "historique", "reglages", "bilan-annuel"];
 const TITLES = {
   saisie: "Compta <em>Lulu</em>",
   bilan: "Bilan <em>mensuel</em>",
   historique: "Mon <em>historique</em>",
-  reglages: "Mes <em>réglages</em>"
+  reglages: "Mes <em>réglages</em>",
+  "bilan-annuel": "Bilan <em>annuel</em>"
 };
 
 let currentScreen = "saisie";
@@ -342,6 +343,7 @@ function showScreen(name) {
   if (name === "bilan") renderBilan();
   if (name === "historique") renderHistorique();
   if (name === "reglages") renderReglages();
+  if (name === "bilan-annuel") renderBilanAnnuel();
 }
 
 document.querySelectorAll(".nav-btn").forEach((btn) => {
@@ -796,6 +798,98 @@ document.getElementById("btn-export-pdf").addEventListener("click", async () => 
   const bytes = buildBilanPdf(data, DB.settings.profil);
   const slug = data.monthLabel.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(" ", "-").toLowerCase();
   await deliverFile(new Blob([bytes], { type: "application/pdf" }), `bilan-${slug}.pdf`);
+});
+
+/* ============================= BILAN ANNUEL ============================= */
+
+function computeBilanAnnuel(year) {
+  const months = [];
+  let ca = 0, percu = 0, frais = 0, cotTotal = 0, totalDepenses = 0, depensesFixes = 0, net = 0;
+  const repartition = {};
+  for (let m = 0; m < 12; m++) {
+    const b = computeBilan(year, m);
+    months.push({ month: m, label: MOIS_FR[m], ca: b.ca, percu: b.percu, cotTotal: b.cotTotal, totalDepenses: b.totalDepenses, net: b.net });
+    ca = roundCents(ca + b.ca);
+    percu = roundCents(percu + b.percu);
+    frais = roundCents(frais + b.frais);
+    cotTotal = roundCents(cotTotal + b.cotTotal);
+    totalDepenses = roundCents(totalDepenses + b.totalDepenses);
+    depensesFixes = roundCents(depensesFixes + b.depensesFixes);
+    net = roundCents(net + b.net);
+    Object.keys(b.repartition).forEach((mode) => {
+      const r = repartition[mode] || (repartition[mode] = { count: 0, total: 0 });
+      r.count += b.repartition[mode].count;
+      r.total = roundCents(r.total + b.repartition[mode].total);
+    });
+  }
+  return {
+    year, months, ca, percu, frais, cotTotal, totalDepenses, depensesFixes,
+    autresDepenses: roundCents(totalDepenses - depensesFixes), net, repartition
+  };
+}
+
+let bilanAnnuelYear = new Date().getFullYear();
+
+function renderBilanAnnuel() {
+  const a = computeBilanAnnuel(bilanAnnuelYear);
+  document.getElementById("annuel-label").textContent = String(a.year);
+
+  document.getElementById("annuel-ca").textContent = fmtEUR(a.ca);
+  document.getElementById("annuel-percu").textContent = fmtEUR(a.percu);
+  document.getElementById("annuel-frais").textContent = fmtEUR(a.frais);
+  document.getElementById("annuel-cot").textContent = fmtEUR(a.cotTotal);
+  document.getElementById("annuel-depenses").textContent = fmtEUR(a.totalDepenses);
+  document.getElementById("annuel-fixes").textContent = fmtEUR(a.depensesFixes);
+  document.getElementById("annuel-net").textContent = fmtEUR(a.net);
+
+  const repList = document.getElementById("annuel-repartition-list");
+  repList.innerHTML = "";
+  const modes = Object.keys(a.repartition);
+  if (modes.length === 0) {
+    repList.innerHTML = `<div class="empty-state">Aucune prestation cette année</div>`;
+  } else {
+    modes.forEach((mode) => {
+      const row = document.createElement("div");
+      row.className = "stat-row";
+      row.innerHTML = `<span>${escapeHtml(mode)}</span><span>${fmtEUR(a.repartition[mode].total)}</span>`;
+      repList.appendChild(row);
+    });
+  }
+
+  const monthsList = document.getElementById("annuel-months-list");
+  monthsList.innerHTML = "";
+  a.months.forEach((m) => {
+    const row = document.createElement("div");
+    row.className = "setting-item";
+    row.innerHTML = `
+      <div>
+        <div class="setting-item-name">${m.label}</div>
+        <div class="hint" style="margin:2px 0 0">CA ${fmtEUR(m.ca)} · Dépenses ${fmtEUR(m.totalDepenses)} · URSSAF ${fmtEUR(m.cotTotal)}</div>
+      </div>
+      <div class="setting-item-price">${fmtEUR(m.net)}</div>
+    `;
+    monthsList.appendChild(row);
+  });
+}
+
+document.getElementById("btn-open-bilan-annuel").addEventListener("click", () => {
+  bilanAnnuelYear = bilanYear;
+  showScreen("bilan-annuel");
+});
+
+document.getElementById("annuel-prev").addEventListener("click", () => {
+  bilanAnnuelYear--;
+  renderBilanAnnuel();
+});
+document.getElementById("annuel-next").addEventListener("click", () => {
+  bilanAnnuelYear++;
+  renderBilanAnnuel();
+});
+
+document.getElementById("btn-export-annuel-pdf").addEventListener("click", async () => {
+  const data = computeBilanAnnuel(bilanAnnuelYear);
+  const bytes = buildBilanAnnuelPdf(data, DB.settings.profil);
+  await deliverFile(new Blob([bytes], { type: "application/pdf" }), `bilan-annuel-${data.year}.pdf`);
 });
 
 /* ============================= VALIDATION DU BILAN ============================= */

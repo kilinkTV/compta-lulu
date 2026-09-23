@@ -149,6 +149,41 @@
     </div>
 
     <button type="button" id="btn-export-pdf" class="btn-primary">Exporter le bilan en PDF</button>
+    <button type="button" id="btn-open-bilan-annuel" class="btn-secondary">Voir le bilan annuel</button>
+  </section>
+
+  <!-- ===================== ECRAN BILAN ANNUEL ===================== -->
+  <section id="screen-bilan-annuel" class="screen hidden">
+    <div class="month-picker">
+      <button id="annuel-prev" class="icon-btn">‹</button>
+      <span id="annuel-label">—</span>
+      <button id="annuel-next" class="icon-btn">›</button>
+    </div>
+
+    <div class="card stat-card" id="annuel-repartition-card">
+      <div class="card-title">Répartition par mode de paiement</div>
+      <div id="annuel-repartition-list"></div>
+    </div>
+
+    <div class="card stat-card">
+      <div class="stat-row"><span>Chiffre d'affaires (à déclarer)</span><strong id="annuel-ca">0,00 €</strong></div>
+      <div class="stat-row"><span>Total réellement perçu</span><strong id="annuel-percu">0,00 €</strong></div>
+      <div class="stat-row muted"><span>dont commissions SumUp</span><span id="annuel-frais">0,00 €</span></div>
+    </div>
+
+    <div class="card stat-card">
+      <div class="stat-row"><span>Cotisations URSSAF estimées (total)</span><span id="annuel-cot">0,00 €</span></div>
+      <div class="stat-row"><span>Total dépenses</span><span id="annuel-depenses">0,00 €</span></div>
+      <div class="stat-row muted"><span>dont charges fixes</span><span id="annuel-fixes">0,00 €</span></div>
+      <div class="stat-row total"><span>Reste net réel de l'année</span><strong id="annuel-net">0,00 €</strong></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Détail par mois</div>
+      <div id="annuel-months-list"></div>
+    </div>
+
+    <button type="button" id="btn-export-annuel-pdf" class="btn-primary">Exporter le bilan annuel en PDF</button>
   </section>
 
   <!-- ===================== ECRAN HISTORIQUE ===================== -->

@@ -278,3 +278,125 @@ function buildBilanPdf(d, profil) {
     doc.text(`Page ${page} / ${total}`, R, doc.H - 28, { size: 8, color: MUTED, align: "right" });
   });
 }
+
+function buildBilanAnnuelPdf(a, profil) {
+  const doc = createPdfDoc();
+  const M = 42;
+  const R = doc.W - M;
+  const PROFOND = [0.361, 0.239, 0.18];
+  const TEAL = [0.545, 0.388, 0.263];
+  const DARK = [0.227, 0.165, 0.118];
+  const MUTED = [0.545, 0.388, 0.263];
+  const SOFT = [0.941, 0.902, 0.847];
+  const HEADBG = [0.961, 0.937, 0.902];
+  let y = 0;
+
+  const newPage = () => {
+    doc.newPage();
+    y = 52;
+  };
+  const ensureSpace = (h) => {
+    if (y + h > doc.H - 56) newPage();
+  };
+  const section = (title) => {
+    ensureSpace(70);
+    y += 8;
+    doc.text(title, M, y, { size: 12, bold: true, color: DARK });
+    doc.line(M, y + 6, R, y + 6, { color: TEAL, width: 1 });
+    y += 26;
+  };
+  const row = (label, value, o = {}) => {
+    ensureSpace(22);
+    const color = o.muted ? MUTED : DARK;
+    doc.text(label, M, y, { size: 10.5, bold: o.bold, color });
+    doc.text(value, R, y, { size: 10.5, bold: o.bold, color, align: "right" });
+    y += 19;
+  };
+  const note = (str) => {
+    ensureSpace(20);
+    doc.text(str, M, y, { size: 8.5, color: MUTED });
+    y += 16;
+  };
+  const tableHeader = (cols) => {
+    doc.rect(M, y - 12, R - M, 18, HEADBG);
+    cols.forEach((c) => doc.text(c.label, c.x, y, { size: 9, bold: true, color: MUTED, align: c.align }));
+    y += 19;
+  };
+  const table = (cols, rows) => {
+    ensureSpace(60);
+    tableHeader(cols);
+    rows.forEach((cells) => {
+      if (y > doc.H - 62) {
+        newPage();
+        tableHeader(cols);
+      }
+      cols.forEach((c, i) => {
+        const txt = c.w ? doc.fit(cells[i], c.w, 9.5, false) : cells[i];
+        doc.text(txt, c.x, y, { size: 9.5, color: DARK, align: c.align });
+      });
+      doc.line(M, y + 5, R, y + 5);
+      y += 17;
+    });
+  };
+
+  newPage();
+  const CREME = [0.992, 0.98, 0.965];
+  doc.rect(0, 0, doc.W, 84, PROFOND);
+  doc.text("Bilan annuel", M, 38, { size: 20, bold: true, color: CREME });
+  doc.text(String(a.year), M, 60, { size: 13, color: CREME });
+  if (profil && profil.nom) doc.text(profil.nom, R, 38, { size: 11, bold: true, color: CREME, align: "right" });
+  if (profil && profil.siret) doc.text("SIRET " + profil.siret, R, 54, { size: 9, color: CREME, align: "right" });
+  y = 106;
+
+  section("Répartition par mode de paiement");
+  const modes = Object.keys(a.repartition);
+  if (modes.length === 0) {
+    note("Aucune prestation cette année.");
+  } else {
+    table(
+      [
+        { label: "Mode", x: M },
+        { label: "Prestations", x: 330, align: "right" },
+        { label: "Montant facturé", x: R, align: "right" }
+      ],
+      modes.map((m) => [m === "CB" ? "CB (SumUp)" : m, String(a.repartition[m].count), pdfEUR(a.repartition[m].total)])
+    );
+  }
+
+  section("Résumé de l'année");
+  row("Chiffre d'affaires (à déclarer à l'URSSAF)", pdfEUR(a.ca), { bold: true });
+  row("Commissions SumUp sur les paiements CB", "- " + pdfEUR(a.frais), { muted: true });
+  row("Total réellement perçu", pdfEUR(a.percu), { bold: true });
+  row("Total à payer à l'URSSAF (estimé)", pdfEUR(a.cotTotal));
+  row("Charges fixes (loyer, assurances, abonnements)", pdfEUR(a.depensesFixes));
+  row("Autres dépenses", pdfEUR(a.autresDepenses));
+  row("Total dépenses", pdfEUR(a.totalDepenses), { bold: true });
+
+  ensureSpace(60);
+  y += 6;
+  doc.rect(M, y - 16, R - M, 38, SOFT);
+  doc.text("Reste net réel de l'année", M + 12, y + 1, { size: 12, bold: true, color: DARK });
+  doc.text("perçu - cotisations URSSAF - dépenses", M + 12, y + 14, { size: 8.5, color: MUTED });
+  doc.text(pdfEUR(a.net), R - 12, y + 6, { size: 15, bold: true, color: TEAL, align: "right" });
+  y += 40;
+
+  section("Détail par mois");
+  table(
+    [
+      { label: "Mois", x: M, w: 90 },
+      { label: "CA", x: 190, align: "right" },
+      { label: "Perçu", x: 300, align: "right" },
+      { label: "URSSAF", x: 400, align: "right" },
+      { label: "Dépenses", x: 470, align: "right" },
+      { label: "Net", x: R, align: "right" }
+    ],
+    a.months.map((m) => [m.label, pdfEUR(m.ca), pdfEUR(m.percu), pdfEUR(m.cotTotal), pdfEUR(m.totalDepenses), pdfEUR(m.net)])
+  );
+
+  const today = pdfDate(isoFromDate(new Date()));
+  return doc.build(`Bilan annuel ${a.year}`, (page, total) => {
+    doc.line(M, doc.H - 42, R, doc.H - 42);
+    doc.text(`Généré avec Compta Lulu le ${today}`, M, doc.H - 28, { size: 8, color: MUTED });
+    doc.text(`Page ${page} / ${total}`, R, doc.H - 28, { size: 8, color: MUTED, align: "right" });
+  });
+}
