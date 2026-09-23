@@ -192,7 +192,12 @@ async function requireSession(request, env) {
   const auth = request.headers.get("Authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
   if (!token) return null;
-  return env.SESSIONS.get(`session:${token}`);
+  const key = `session:${token}`;
+  const email = await env.SESSIONS.get(key);
+  // Prolonge la session à chaque usage : un appareil utilisé régulièrement ne doit jamais
+  // expirer tout seul, seule l'inactivité totale pendant 180 jours le déconnecte.
+  if (email) await env.SESSIONS.put(key, email, { expirationTtl: 60 * 60 * 24 * 180 });
+  return email;
 }
 
 async function handleSync(request, env) {
