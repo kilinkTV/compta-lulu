@@ -77,3 +77,10 @@ Synchronisation : activer dans Réglages → Compte et synchronisation, entrer
 un email, cliquer sur le lien reçu par mail sur un premier appareil, refaire
 pareil avec le même email sur un second appareil — les données doivent se
 retrouver synchronisées entre les deux en quelques secondes.
+
+Sur iPhone, un lien ouvert depuis l'app Mail s'ouvre toujours dans Safari,
+jamais dans l'app installée sur l'écran d'accueil — et Safari a un stockage
+séparé de celui de l'app installée. Cliquer sur le lien ne connecte donc pas
+l'app réellement utilisée. C'est pour ça que l'email contient aussi un code à
+6 chiffres, à saisir directement dans l'app installée (Réglages → Compte et
+synchronisation) sans passer par le navigateur.

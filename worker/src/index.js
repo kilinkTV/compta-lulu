@@ -104,7 +104,11 @@ function randomToken() {
   return crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
 }
 
-async function sendMagicLinkEmail(env, email, link) {
+function randomCode() {
+  return String(Math.floor(100000 + Math.random() * 900000)); // 6 chiffres
+}
+
+async function sendMagicLinkEmail(env, email, link, code) {
   const mailer = await WorkerMailer.connect({
     host: "smtp.gmail.com",
     port: 587,
@@ -125,6 +129,8 @@ async function sendMagicLinkEmail(env, email, link) {
         <p>Bonjour,</p>
         <p>Voici votre lien de connexion à Compta Lulu, valable 15 minutes :</p>
         <p><a href="${link}">Se connecter à Compta Lulu</a></p>
+        <p><strong>Sur téléphone :</strong> si ce lien ouvre le navigateur au lieu de l'application installée sur l'écran d'accueil, ouvrez plutôt l'application installée, puis entrez ce code dans Réglages → Compte et synchronisation :</p>
+        <p style="font-size:28px; font-weight:bold; letter-spacing:6px;">${code}</p>
         <p>Si vous n'avez rien demandé, ignorez cet email.</p>
       `
     });
@@ -149,23 +155,33 @@ async function handleRequestLink(request, env) {
   await env.MAGICLINKS.put(rateKey, "1", { expirationTtl: 60 });
 
   const token = randomToken();
+  const code = randomCode();
   await env.MAGICLINKS.put(`token:${token}`, email, { expirationTtl: 900 }); // 15 minutes
+  await env.MAGICLINKS.put(`code:${code}`, token, { expirationTtl: 900 }); // alias pour saisie manuelle
 
   const base = (body && body.appUrl) || "https://kilinktv.github.io/compta-lulu/";
   const link = `${base}${base.includes("?") ? "&" : "?"}magic=${token}`;
-  await sendMagicLinkEmail(env, email, link);
+  await sendMagicLinkEmail(env, email, link, code);
   return json({ status: "sent" });
 }
 
 async function handleVerify(request, env) {
   const body = await request.json().catch(() => null);
-  const token = body && body.token;
+  let token = body && body.token;
+  const code = body && body.code;
+  let codeKey = null;
+  if (!token && code) {
+    codeKey = `code:${code}`;
+    token = await env.MAGICLINKS.get(codeKey);
+    if (!token) return text("Code invalide ou expiré", 401);
+  }
   if (!token) return text("Jeton manquant", 400);
 
   const key = `token:${token}`;
   const email = await env.MAGICLINKS.get(key);
   if (!email) return text("Lien invalide ou expiré", 401);
   await env.MAGICLINKS.delete(key); // usage unique
+  if (codeKey) await env.MAGICLINKS.delete(codeKey);
 
   const sessionToken = randomToken();
   await env.SESSIONS.put(`session:${sessionToken}`, email, { expirationTtl: 60 * 60 * 24 * 180 }); // 180 jours

@@ -171,6 +171,12 @@
         <label class="field-label">Adresse email</label>
         <input type="email" id="sync-email-input" placeholder="vous@exemple.fr" inputmode="email" />
         <button type="button" id="btn-sync-request" class="btn-secondary">Recevoir le lien de connexion</button>
+        <p class="hint">Sur téléphone, si le lien reçu par email ouvre le navigateur au lieu de l'app installée, utilisez plutôt le code à 6 chiffres donné dans le même email, directement ici :</p>
+        <label class="field-label">Code reçu par email</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="sync-code-input" placeholder="123456" inputmode="numeric" maxlength="6" style="flex:1" />
+          <button type="button" id="btn-sync-code" class="btn-secondary" style="width:auto; padding:0 16px;">Valider</button>
+        </div>
       </div>
       <div id="sync-connected" class="hidden">
         <div class="hint" style="margin-top:0">Connecté avec <strong id="sync-email"></strong></div>

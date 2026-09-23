@@ -1572,15 +1572,23 @@ async function requestMagicLink(email) {
   return data.status; // "sent" ou "wait"
 }
 
-async function verifyMagicToken(token) {
+async function verifySync(payload) {
   const res = await fetch(`${SYNC_SERVER_URL}/auth/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token })
+    body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error(await res.text());
   const data = await res.json();
   setSyncSession({ email: data.email, token: data.sessionToken });
+}
+
+function verifyMagicToken(token) {
+  return verifySync({ token });
+}
+
+function verifySyncCode(code) {
+  return verifySync({ code });
 }
 
 function disconnectSync() {
@@ -1689,6 +1697,31 @@ document.getElementById("btn-sync-request").addEventListener("click", async () =
     btn.textContent = label;
     btn.disabled = false;
   }, 2500);
+});
+
+document.getElementById("btn-sync-code").addEventListener("click", async () => {
+  const codeInput = document.getElementById("sync-code-input");
+  const code = codeInput.value.trim();
+  if (!/^\d{6}$/.test(code)) { showToast("Entrez le code à 6 chiffres reçu par email"); return; }
+  const btn = document.getElementById("btn-sync-code");
+  if (btn.disabled) return;
+  codeInput.blur();
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "…";
+  try {
+    await verifySyncCode(code);
+    codeInput.value = "";
+    showToast("Connecté ✓ — synchronisation en cours");
+    updateSyncStatus();
+    syncNow();
+  } catch (e) {
+    console.error(e);
+    showToast("Code invalide ou expiré, redemandez un lien");
+  } finally {
+    btn.textContent = label;
+    btn.disabled = false;
+  }
 });
 
 document.getElementById("btn-sync-disconnect").addEventListener("click", () => {
